@@ -80,6 +80,19 @@ public sealed class PasResponse
     public string? DenialReason =>
         ClaimResponse.TryGetProperty("processNote", out var notes) ? notes[0].GetProperty("text").GetString() : null;
 
+    /// <summary>The coded reason on the review action (PAS reasonCode), and the text that rides with it.</summary>
+    public (string? Code, string? Text) DenialReasonCode
+    {
+        get
+        {
+            var reason = Extension(ReviewAction, "reasonCode")?.GetProperty("valueCodeableConcept");
+            if (reason is not { } concept) return (null, null);
+            var code = concept.TryGetProperty("coding", out var codings) ? codings[0].GetProperty("code").GetString() : null;
+            var text = concept.TryGetProperty("text", out var t) ? t.GetString() : null;
+            return (code, text);
+        }
+    }
+
     public string? ErrorDiagnostics =>
         ResourceType == "OperationOutcome"
             ? JsonDocument.Parse(Body).RootElement.GetProperty("issue")[0].GetProperty("diagnostics").GetString()

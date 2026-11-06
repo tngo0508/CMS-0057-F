@@ -73,8 +73,15 @@ billing the service.
 _Avoid_: Auth ID, reference number, tracking number
 
 **Denial Reason**:
-The specific, plain-language explanation a Reviewer must give when denying a Prior Authorization Request.
-_Avoid_: Rejection reason, denial code
+The specific, plain-language explanation a Reviewer must give when denying a Prior Authorization Request. A Denial
+Reason Code may go with it, never in place of it.
+_Avoid_: Rejection reason
+
+**Denial Reason Code**:
+One of the coded reasons for a denial that the Behavioral Health Plan has chosen to use, taken from the X12 Review
+Decision Reason Codes that the payer-to-provider standards carry. Optional, and always accompanied by the Denial Reason
+in words.
+_Avoid_: Denial code, reject reason code
 
 **Decision Subscription**:
 A provider system's standing request to be told, at an address it names, whenever a Prior Authorization Request its

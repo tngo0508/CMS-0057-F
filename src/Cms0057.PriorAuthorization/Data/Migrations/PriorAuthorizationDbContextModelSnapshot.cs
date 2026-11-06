@@ -103,6 +103,14 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
 
+                    b.Property<string>("DenialReasonCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("DenialReasonDisplay")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("MemberIdentifier")
                         .IsRequired()
                         .HasMaxLength(100)

@@ -32,6 +32,9 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:PriorAuthorization", ConnectionString);
+        // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.
+        builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Code", DenialReasonCodes.NotMedicallyNecessary);
+        builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -79,10 +82,10 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         return response.StatusCode;
     }
 
-    public async Task<HttpStatusCode> Deny(string id, string? denialReason)
+    public async Task<HttpStatusCode> Deny(string id, string? denialReason, string? reasonCode = null)
     {
         using var client = CreateClient();
-        using var response = await client.PostAsJsonAsync($"/reviewer/requests/{id}/deny", new { denialReason });
+        using var response = await client.PostAsJsonAsync($"/reviewer/requests/{id}/deny", new { denialReason, reasonCode });
         return response.StatusCode;
     }
 
@@ -110,6 +113,12 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
 
     private string ConnectionString =>
         $@"Server=(localdb)\MSSQLLocalDB;Database={_database};Integrated Security=true;TrustServerCertificate=true";
+}
+
+/// <summary>The Denial Reason codes the test plan is configured with. Test values, not X12's.</summary>
+public static class DenialReasonCodes
+{
+    public const string NotMedicallyNecessary = "TEST-NMN";
 }
 
 /// <summary>A Pended request as the Reviewer's list shows it; ServiceCodes are the ones awaiting the decision.</summary>

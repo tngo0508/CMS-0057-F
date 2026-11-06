@@ -1,5 +1,6 @@
 using Cms0057.PriorAuthorization.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Cms0057.PriorAuthorization;
 
@@ -10,6 +11,7 @@ namespace Cms0057.PriorAuthorization;
 public sealed class PriorAuthorizationRequests(
     PriorAuthorizationDbContext db,
     IAuthorizationRules rules,
+    IOptions<PriorAuthorizationOptions> options,
     TimeProvider clock)
 {
     /// <summary>
@@ -69,10 +71,16 @@ public sealed class PriorAuthorizationRequests(
         Decide(id, request => request.Approve(authorizationEnds, clock.GetUtcNow()));
 
     /// <returns>The denied request, or null when there is no such request.</returns>
-    /// <exception cref="DecisionRefused">No Denial Reason was given.</exception>
+    /// <exception cref="DecisionRefused">No Denial Reason was given, or the code is not one the plan uses.</exception>
     /// <exception cref="AlreadyAnswered">The request is not Pended.</exception>
-    public Task<PriorAuthorizationRequest?> Deny(Guid id, string? denialReason) =>
-        Decide(id, request => request.Deny(denialReason, clock.GetUtcNow()));
+    public Task<PriorAuthorizationRequest?> Deny(Guid id, string? denialReason, string? reasonCode)
+    {
+        DenialReasonCode? coded = null;
+        if (!string.IsNullOrWhiteSpace(reasonCode))
+            coded = options.Value.DenialReasonCodes.FirstOrDefault(c => string.Equals(c.Code, reasonCode.Trim(), StringComparison.OrdinalIgnoreCase))
+                ?? throw new DecisionRefused($"'{reasonCode}' is not a Denial Reason code this plan uses");
+        return Decide(id, request => request.Deny(denialReason, coded, clock.GetUtcNow()));
+    }
 
     private async Task<PriorAuthorizationRequest?> Decide(Guid id, Action<PriorAuthorizationRequest> decision)
     {

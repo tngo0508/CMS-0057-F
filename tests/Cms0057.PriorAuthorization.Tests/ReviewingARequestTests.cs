@@ -129,6 +129,36 @@ public sealed class ReviewingARequestTests : IAsyncLifetime
         Assert.Equal("The assessment does not show a need for a residential level of care.", answer.DenialReason);
     }
 
+    [Fact]
+    public async Task A_denial_may_carry_one_of_the_plans_coded_reasons_alongside_the_text()
+    {
+        await _api.Deny(_pended, "The assessment does not show a need for a residential level of care.",
+            reasonCode: DenialReasonCodes.NotMedicallyNecessary);
+
+        var answer = await _api.Inquire(RequestBundles.Inquiry());
+        Assert.Equal(
+            (DenialReasonCodes.NotMedicallyNecessary, "The assessment does not show a need for a residential level of care."),
+            answer.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task A_denial_without_a_code_still_tells_the_provider_the_reason_in_words()
+    {
+        await _api.Deny(_pended, "The assessment does not show a need for a residential level of care.");
+
+        var answer = await _api.Inquire(RequestBundles.Inquiry());
+        Assert.Equal((null, "The assessment does not show a need for a residential level of care."), answer.DenialReasonCode);
+    }
+
+    [Fact]
+    public async Task A_reason_code_the_plan_does_not_use_is_refused()
+    {
+        var status = await _api.Deny(_pended, "Some reason.", reasonCode: "NOT-A-CODE");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("A4", (await _api.Inquire(RequestBundles.Inquiry())).ReviewActionCode);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("   ")]

@@ -46,6 +46,10 @@ public sealed class PriorAuthorizationRequest
     public DateOnly? AuthorizationEnds { get; private set; }
     public string? DenialReason { get; private set; }
 
+    /// <summary>The plan's coded Denial Reason (X12 886), when the Reviewer gave one, and its display text.</summary>
+    public string? DenialReasonCode { get; private set; }
+    public string? DenialReasonDisplay { get; private set; }
+
     /// <summary>The request Bundle exactly as the provider system sent it.</summary>
     public string RequestBundle { get; private set; } = "";
 
@@ -103,13 +107,18 @@ public sealed class PriorAuthorizationRequest
         DecidedAt = now;
     }
 
-    /// <summary>A Reviewer denies the request. The denial must give a specific, plain-language reason.</summary>
-    public void Deny(string? denialReason, DateTimeOffset now)
+    /// <summary>
+    /// A Reviewer denies the request. The denial must give a specific, plain-language reason; a coded reason from
+    /// the plan's list may go with it.
+    /// </summary>
+    public void Deny(string? denialReason, DenialReasonCode? reasonCode, DateTimeOffset now)
     {
         RequirePended();
         if (string.IsNullOrWhiteSpace(denialReason))
             throw new DecisionRefused("A denial must give a specific reason");
         DenialReason = denialReason.Trim();
+        DenialReasonCode = reasonCode?.Code;
+        DenialReasonDisplay = reasonCode?.Display;
         State = RequestState.Denied;
         DecidedAt = now;
     }

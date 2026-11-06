@@ -26,6 +26,18 @@ public sealed class PriorAuthorizationOptions
     /// the code and, if any modifiers are listed, at least one of them.
     /// </summary>
     public List<ResidentialService> ResidentialServices { get; set; } = [];
+
+    /// <summary>
+    /// The coded Denial Reasons this plan uses, from the X12 886 Review Decision Reason Codes. X12 licenses those
+    /// codes, so none ship with the service; the plan enters the ones it has licensed.
+    /// </summary>
+    public List<DenialReasonCode> DenialReasonCodes { get; set; } = [];
+}
+
+public sealed class DenialReasonCode
+{
+    public string Code { get; set; } = "";
+    public string Display { get; set; } = "";
 }
 
 public sealed class ResidentialService

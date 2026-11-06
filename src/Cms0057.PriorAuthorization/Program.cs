@@ -95,7 +95,7 @@ app.MapPost("/reviewer/requests/{id:guid}/approve",
 
 app.MapPost("/reviewer/requests/{id:guid}/deny",
     (Guid id, Denial denial, HttpRequest http, PriorAuthorizationRequests requests, PasSubscriptions subscriptions) =>
-        Decision(() => requests.Deny(id, denial.DenialReason), subscriptions, ServerBase(http)));
+        Decision(() => requests.Deny(id, denial.DenialReason, denial.ReasonCode), subscriptions, ServerBase(http)));
 
 app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests requests, TimeProvider clock) =>
 {
@@ -142,6 +142,8 @@ static async Task<IResult> Decision(
 
 public sealed record Approval(DateOnly? AuthorizationEnds);
 
-public sealed record Denial(string? DenialReason);
+/// <param name="DenialReason">The plain-language reason; required.</param>
+/// <param name="ReasonCode">One of the plan's configured X12 886 codes; optional.</param>
+public sealed record Denial(string? DenialReason, string? ReasonCode = null);
 
 public partial class Program;

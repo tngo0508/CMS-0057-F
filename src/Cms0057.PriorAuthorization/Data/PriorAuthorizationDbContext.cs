@@ -23,6 +23,8 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             request.Property(r => r.State).HasConversion<string>().HasMaxLength(20);
             request.Property(r => r.AuthorizationNumber).HasMaxLength(50);
             request.Property(r => r.DenialReason).HasMaxLength(4000);
+            request.Property(r => r.DenialReasonCode).HasMaxLength(20);
+            request.Property(r => r.DenialReasonDisplay).HasMaxLength(200);
             request.Ignore(r => r.ReferenceNumber);
             request.Ignore(r => r.ServiceCodesUnderReview);
             request.OwnsMany(r => r.Items, item =>

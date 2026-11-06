@@ -171,7 +171,8 @@ Content-Type: application/json
 { "authorizationEnds": "2026-12-06" }
 
 ### 3b. OR the Reviewer denies it (send step 1 again first to get a fresh Pended request).
-# Expect: 204. An empty reason gives 400.
+# Expect: 204. An empty reason gives 400. A "reasonCode" may be added once the plan has entered its licensed
+# X12 886 codes under PriorAuthorization:DenialReasonCodes in appsettings.json; an unknown code gives 400.
 POST {{baseUrl}}/reviewer/requests/{{submit.response.body.$.entry[0].resource.id}}/deny
 Content-Type: application/json
 

@@ -20,6 +20,7 @@ public static class PasWire
     private const string InquiryResponseBundleProfile = PasBase + "profile-pas-inquiry-response-bundle";
     private const string ClaimResponseProfile = PasBase + "profile-claimresponse";
     private const string ReviewActionSystem = "https://codesystem.x12.org/005010/306";
+    private const string ReviewDecisionReasonSystem = "https://codesystem.x12.org/external/886";
     private const string AdjudicationSystem = "http://terminology.hl7.org/CodeSystem/adjudication";
     private const string IdentifierTypeSystem = "http://terminology.hl7.org/CodeSystem/v2-0203";
     private const string SubmissionIdentifierSystem = "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER";
@@ -161,7 +162,14 @@ public static class PasWire
 
             if (state == RequestState.Denied)
             {
-                // br-payer has no place for a free-text Denial Reason; a process note on the item is ours.
+                // PAS puts the reason on the review action: a coded X12 886 reason when the plan gave one, and the
+                // Reviewer's words as the concept's text either way.
+                var reason = new CodeableConcept { Text = request.DenialReason };
+                if (request.DenialReasonCode is not null)
+                    reason.Coding.Add(new Coding(ReviewDecisionReasonSystem, request.DenialReasonCode, request.DenialReasonDisplay));
+                reviewAction.Extension.Add(new Extension("reasonCode", reason));
+
+                // A process note repeats the words where any ClaimResponse reader will find them; that placement is ours.
                 item.NoteNumber = [1];
                 claimResponse.ProcessNote =
                 [
