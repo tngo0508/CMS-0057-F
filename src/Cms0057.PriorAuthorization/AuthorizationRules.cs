@@ -57,6 +57,21 @@ public sealed class PriorAuthorizationOptions
     /// codes, so none ship with the service; the plan enters the ones it has licensed.
     /// </summary>
     public List<DenialReasonCode> DenialReasonCodes { get; set; } = [];
+
+    /// <summary>
+    /// Validate request Bundles against the Da Vinci PAS 2.2.1 profiles, after the structural checks. On by
+    /// default; off makes the service accept whatever the structural checks accept.
+    /// </summary>
+    public bool ValidateProfiles { get; set; } = true;
+
+    /// <summary>The FHIR package server the PAS package and its dependencies are fetched from on first start.</summary>
+    public string FhirPackageServer { get; set; } = "https://packages.fhir.org";
+
+    /// <summary>
+    /// The folder the fetched packages (.tgz files) are kept in, relative to the content root. Null means
+    /// "fhir-packages". A copy of the folder is all an offline machine needs.
+    /// </summary>
+    public string? FhirPackageFolder { get; set; }
 }
 
 /// <summary>One rule: which billing codes it covers and how long the plan has to decide.</summary>

@@ -25,6 +25,14 @@
           {
             "extension": [
               {
+                "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-serviceItemRequestType",
+                "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1525", "code": "HS", "display": "Health Services Review" }] }
+              },
+              {
+                "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType",
+                "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "I", "display": "Initial" }] }
+              },
+              {
                 "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-itemTraceNumber",
                 "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "1122334" }
               }
@@ -63,9 +71,18 @@
       "resource": {
         "resourceType": "Coverage",
         "id": "MemberCoverage",
+        "identifier": [
+          {
+            "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] },
+            "system": "http://example.org/fhir/sid/member-identifier",
+            "value": "90000001A"
+          }
+        ],
         "status": "active",
         "subscriberId": "90000001A",
+        "subscriber": { "reference": "Patient/MemberExample" },
         "beneficiary": { "reference": "Patient/MemberExample" },
+        "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
         "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
       }
     },
@@ -81,7 +98,8 @@
             "value": "90000001A"
           }
         ],
-        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }]
+        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }],
+        "gender": "female"
       }
     }
   ]

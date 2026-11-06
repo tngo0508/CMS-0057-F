@@ -207,7 +207,7 @@ public sealed class AlreadyAnswered(RequestState state) : Exception($"The reques
 /// A request the service cannot process: malformed, or for someone who is not a Member. It is an error to the
 /// sender, never a Prior Authorization Decision, and nothing is recorded.
 /// </summary>
-public sealed class RequestRejected(string reason) : Exception(reason);
+public class RequestRejected(string reason) : Exception(reason);
 
 /// <summary>One service a Prior Authorization Request asks for, as recorded with the request.</summary>
 public sealed class RequestedItem

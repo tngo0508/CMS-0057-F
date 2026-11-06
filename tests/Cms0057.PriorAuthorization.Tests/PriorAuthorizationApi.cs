@@ -17,7 +17,7 @@ namespace Cms0057.PriorAuthorization.Tests;
 /// The running service as a provider system and a Reviewer see it: over HTTP only. Each instance has its own
 /// LocalDB database and its own clock, which starts at <see cref="Start"/>.
 /// </summary>
-public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
+public sealed class PriorAuthorizationApi(bool validateProfiles = true) : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Start = new(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
 
@@ -32,6 +32,8 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:PriorAuthorization", ConnectionString);
+        // Validation against the PAS profiles is on by default; a test switches it off to show the setting works.
+        if (!validateProfiles) builder.UseSetting("PriorAuthorization:ValidateProfiles", "false");
         // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.
         builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Code", DenialReasonCodes.NotMedicallyNecessary);
         builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");

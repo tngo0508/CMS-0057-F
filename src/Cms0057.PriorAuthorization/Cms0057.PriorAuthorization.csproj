@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Firely.Fhir.Packages" Version="6.2.0" />
+    <PackageReference Include="Firely.Fhir.Validation.R4" Version="3.6.0" />
     <PackageReference Include="Hl7.Fhir.R4" Version="6.8.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
