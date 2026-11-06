@@ -17,7 +17,9 @@ A provider system sends a Prior Authorization Request as a Da Vinci PAS Bundle. 
 
 A Reviewer then approves (`A1`, with an Authorization Number and end date) or denies (`A2`, with a specific
 plain-language Denial Reason). The provider system can ask what became of its requests, or subscribe and be told.
-An EHR can ask, as a clinician signs an order, whether prior authorization is needed (Da Vinci CRD).
+An EHR can ask, as a clinician signs an order, whether prior authorization is needed and which documentation goes
+with it (Da Vinci CRD), and its DTR app can then fetch that Documentation Questionnaire, started, to complete
+(Da Vinci DTR), as a whole or a few questions at a time.
 
 | Endpoint | Guide | Purpose |
 | --- | --- | --- |
@@ -26,7 +28,9 @@ An EHR can ask, as a clinician signs an order, whether prior authorization is ne
 | `POST /fhir/Claim/$inquire` | PAS 2.2.1 | Ask about the requesting provider's requests for a Member |
 | `GET /fhir/ClaimResponse/{id}` | PAS 2.2.1 | Read one response by the id it carries (what a notification points at) |
 | `POST /fhir/Subscription`, `GET /fhir/Subscription?url=&status=` | PAS 2.2.1 / Subscriptions Backport | Be notified when a request is decided; look up the subscription already held |
-| `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order |
+| `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order: whether prior authorization is needed and the questionnaire to complete |
+| `POST /fhir/Questionnaire/$questionnaire-package` | DTR 2.2.0 | The Documentation Questionnaire(s) for an order or by canonical, each with a started QuestionnaireResponse |
+| `POST /fhir/Questionnaire/$next-question` | DTR 2.2.0 / SDC adaptive forms | The next questions of an Adaptive Questionnaire, chosen from the answers so far |
 | `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
 | `POST /reviewer/requests/{id}/approve`, `.../deny` | — | The Reviewer's decision |
@@ -78,11 +82,24 @@ sign-in, as the rest of the proof of concept has none.
 
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
 connection string, the registered client systems (`Authentication`, below), the rules (`Requirements`: which
-billing codes need prior authorization and how long the plan has to decide, standard and expedited), the plan's
-licensed Denial Reason codes, and the profile validation (`ValidateProfiles`, on by default; `FhirPackageServer`
-and `FhirPackageFolder` say where the packages come from and where they are kept). The residential codes (`H0019`
-with `U1`/`U2`/`U3`) come from the DMC-ODS billing manual; the mental health codes under BHIN 26-030 are still to be
-confirmed against the 2026 manual.
+billing codes need prior authorization, how long the plan has to decide, standard and expedited, and the canonical
+of the Documentation Questionnaire that goes with the request), the plan's licensed Denial Reason codes, and the
+profile validation (`ValidateProfiles`, on by default; `FhirPackageServer` and `FhirPackageFolder` say where the
+packages come from and where they are kept). The residential codes (`H0019` with `U1`/`U2`/`U3`) come from the
+DMC-ODS billing manual; the mental health codes under BHIN 26-030 are still to be confirmed against the 2026 manual.
+
+The questionnaires themselves are FHIR Questionnaires, one per file in
+[`questionnaires/`](src/Cms0057.PriorAuthorization/questionnaires) (`QuestionnaireFolder` to keep them elsewhere).
+The one shipped, *Residential Treatment Documentation*, is a starting point drawn from the DMC-ODS medical necessity
+requirements, in which the level of care follows from an ASAM Criteria assessment: the ASAM level and assessment
+date, the diagnosis, the admission date and length of stay requested, why a less intensive level of care would not
+do, and any residential episode in the last twelve months. **The plan's utilization management staff have yet to
+confirm those questions**; it is marked `draft`. Every questionnaire is also offered as an Adaptive Questionnaire
+under its canonical with `-adaptive` appended: the package then carries the first questions in the response's
+contained Questionnaire, and `$next-question` adds the next set, from the first question not yet asked up to the
+next one that later questions depend on (an `enableWhen`), leaving out questions whose condition the answers do
+not meet, until nothing is left and the response is `completed`. The BHIN 26-030 services name no questionnaire
+yet, so their coverage information says prior authorization is needed and nothing about documentation.
 
 ## How a provider system authenticates
 
@@ -110,8 +127,9 @@ password. Da Vinci's `br-payer` sample runs without authentication; here it is o
    scope the operation needs 403, both with an OperationOutcome on `/fhir/*`.
 
 Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, reading a ClaimResponse
-`system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write` and looking one up
-`system/Subscription.read`; CRD needs only a token from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
+`system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write`, looking one up
+`system/Subscription.read` and the two DTR operations `system/Questionnaire.read` (`br-provider` asks for
+`system/*.rs`, which is granted as that); CRD needs only a token from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
 and is answered in it; and it is granted the part of what it asked for that it is registered for, the token
 response's `scope` saying which, rather than refused outright (`invalid_scope` only when none of it can be granted).
 The metrics report under `/reports`
@@ -135,16 +153,19 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 
 ## What is and is not built
 
-Built: PAS submit, inquire, ClaimResponse read, subscription notifications and subscription look-up; CRD order-sign; configurable rules with standard and
-expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
-health services); several items per request; updates, cancellations and renewals; approval and denial with the
-rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the public metrics
-report; SMART Backend Services authentication for the provider-facing endpoints; validation of requests and
-inquiries against the PAS profiles.
+Built: PAS submit, inquire, ClaimResponse read, subscription notifications and subscription look-up; CRD
+order-sign with the documentation needed; DTR questionnaire packages and adaptive forms; configurable rules with
+standard and expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN
+26-030 mental health services); several items per request; updates, cancellations and renewals; approval and
+denial with the rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the
+public metrics report; SMART Backend Services authentication for the provider-facing endpoints; validation of
+requests and inquiries against the PAS profiles.
 
-Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, the Reviewer
-endpoints' own authentication, and the rule's other three APIs (Patient Access, Provider Access, Payer-to-Payer).
-Several issues are questions for the agency rather than work items.
+Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR prepopulation beyond the order
+itself (no CQL libraries ship; the plan fills in only the service requested), receiving a completed
+QuestionnaireResponse with a request, the Reviewer endpoints' own authentication, and the rule's other three APIs
+(Patient Access, Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work
+items.
 
 ## Sources and attribution
 

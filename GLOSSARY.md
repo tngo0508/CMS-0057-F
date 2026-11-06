@@ -102,8 +102,19 @@ _Avoid_: Webhook, callback, notification subscription (unqualified)
 
 **Coverage Information**:
 The Behavioral Health Plan's answer, attached to an order as the clinician signs it, saying whether the service is
-covered and whether a Prior Authorization Request is needed.
+covered, whether a Prior Authorization Request is needed and, if so, which Documentation Questionnaire goes with it.
 _Avoid_: Card, coverage determination, eligibility response
+
+**Documentation Questionnaire**:
+The questions the Behavioral Health Plan asks a provider to answer and send with a Prior Authorization Request for a
+given service, so that a Reviewer can decide it. Which one applies follows from the service requested; the plan
+hands it out already started, with what it can fill in itself.
+_Avoid_: Form, template, DTR questionnaire, attachment
+
+**Adaptive Questionnaire**:
+A Documentation Questionnaire the Behavioral Health Plan hands out a few questions at a time, choosing each next set
+from the answers so far, until it says the questionnaire is complete.
+_Avoid_: Wizard, dynamic form, interview
 
 ### The four APIs
 
@@ -120,8 +131,8 @@ The interface through which Impacted Payers exchange a person's information when
 only after that person has opted in.
 
 **Prior Authorization API**:
-The interface through which a provider learns whether prior authorization is required, what documentation is needed,
-and submits a request and receives the decision.
+The interface through which a provider learns whether prior authorization is required (Coverage Information), what
+documentation is needed (the Documentation Questionnaire), and submits a request and receives the decision.
 _Avoid_: PARDD API (the proposed rule's name)
 
 ### Sources

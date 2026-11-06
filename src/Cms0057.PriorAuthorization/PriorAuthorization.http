@@ -20,7 +20,7 @@
 POST {{baseUrl}}/auth/token
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read
 
 ### B. What the service advertises about obtaining a token (no token needed).
 GET {{baseUrl}}/.well-known/smart-configuration
@@ -74,6 +74,97 @@ Authorization: Bearer {{token.response.body.$.access_token}}
       "payor": [{ "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" }]
     }
   }
+}
+
+### 0b. DTR: the provider's DTR app asks what documentation the request needs, with the Member's Coverage and the order.
+# Expect: 200 Parameters with one "packagebundle": a Bundle holding the plan's Residential Treatment Documentation
+# questionnaire (the canonical the step 0 coverage information named) and a started QuestionnaireResponse with the
+# requested service filled in. An H0004 order gives no package and an "outcome" saying nothing matched; without
+# the coverage parameter, 400. Add { "name": "questionnaire", "valueCanonical": "...residential-treatment-adaptive" }
+# to be handed the same questionnaire as an adaptive form instead (its first questions in the contained Questionnaire).
+# @name package
+POST {{baseUrl}}/fhir/Questionnaire/$questionnaire-package
+Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    {
+      "name": "coverage",
+      "resource": {
+        "resourceType": "Coverage",
+        "id": "MemberCoverage",
+        "status": "active",
+        "subscriberId": "90000001A",
+        "beneficiary": { "reference": "Patient/MemberExample" },
+        "payor": [{ "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" }]
+      }
+    },
+    {
+      "name": "order",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "ResidentialOrder",
+        "status": "active",
+        "intent": "order",
+        "code": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] },
+        "orderDetail": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "U1" }] }],
+        "subject": { "reference": "Patient/MemberExample" },
+        "authoredOn": "2026-11-06",
+        "insurance": [{ "reference": "Coverage/MemberCoverage" }]
+      }
+    }
+  ]
+}
+
+### 0c. DTR adaptive form: the DTR app sends the answers so far and is handed the next questions.
+# Expect: 200 Parameters with "return": the QuestionnaireResponse, its contained Questionnaire now ending with the
+# "prior-residential-episode" group because prior-residential was answered true (answer false instead and the
+# response comes back "completed" with no new questions). A response to a questionnaire the plan does not hold: 400.
+POST {{baseUrl}}/fhir/Questionnaire/$next-question
+Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    {
+      "name": "questionnaire-response",
+      "resource": {
+        "resourceType": "QuestionnaireResponse",
+        "meta": { "profile": ["http://hl7.org/fhir/us/davinci-dtr/StructureDefinition/dtr-questionnaireresponse-adapt"] },
+        "contained": [
+          {
+            "resourceType": "Questionnaire",
+            "id": "contained-questionnaire",
+            "url": "http://example.org/behavioral-health-plan/Questionnaire/residential-treatment-adaptive",
+            "derivedFrom": ["http://example.org/behavioral-health-plan/Questionnaire/residential-treatment|0.1.0"],
+            "status": "draft",
+            "extension": [{ "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-questionnaireAdaptive", "valueUrl": "{{baseUrl}}/fhir/Questionnaire/$next-question" }],
+            "item": [
+              { "linkId": "requested-service", "text": "Service requested (billing code and modifier)", "type": "string", "readOnly": true },
+              { "linkId": "asam-level", "text": "ASAM level of care the assessment indicates", "type": "choice", "required": true },
+              { "linkId": "asam-assessment-date", "text": "Date of the ASAM Criteria assessment", "type": "date", "required": true },
+              { "linkId": "diagnosis", "text": "Primary substance use disorder diagnosis (ICD-10-CM code)", "type": "string", "required": true },
+              { "linkId": "admission-date", "text": "Requested admission date", "type": "date", "required": true },
+              { "linkId": "length-of-stay", "text": "Requested length of stay (days)", "type": "integer", "required": true },
+              { "linkId": "less-intensive-care", "text": "Why a less intensive level of care would not meet the Member's needs", "type": "text", "required": true },
+              { "linkId": "prior-residential", "text": "Has the Member had residential treatment in the last 12 months?", "type": "boolean", "required": true }
+            ]
+          }
+        ],
+        "questionnaire": "#contained-questionnaire",
+        "status": "in-progress",
+        "subject": { "reference": "Patient/MemberExample" },
+        "item": [
+          { "linkId": "requested-service", "answer": [{ "valueString": "H0019 U1" }] },
+          { "linkId": "length-of-stay", "answer": [{ "valueInteger": 30 }] },
+          { "linkId": "prior-residential", "answer": [{ "valueBoolean": true }] }
+        ]
+      }
+    }
+  ]
 }
 
 ### 1. Provider submits a residential treatment request (H0019 + U1).

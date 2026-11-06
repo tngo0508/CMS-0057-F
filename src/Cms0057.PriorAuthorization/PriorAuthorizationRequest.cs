@@ -265,7 +265,20 @@ public sealed record RequestCancellation(string PriorClaimIdentifier) : PasSubmi
 
 public sealed record ItemUpdate(RequestedService Service, bool Cancelled);
 
-public sealed record RequestedService(int Sequence, string Code, IReadOnlyList<string> Modifiers);
+public sealed record RequestedService(int Sequence, string Code, IReadOnlyList<string> Modifiers)
+{
+    /// <summary>
+    /// The service a draft order asks for: the order's code, with any HCPCS modifiers the EHR put in orderDetail.
+    /// That is this project's convention; ServiceRequest has no modifier element. An order is one service, item 1.
+    /// </summary>
+    /// <exception cref="RequestRejected">The order has no code.</exception>
+    public static RequestedService OfOrder(Hl7.Fhir.Model.ServiceRequest order)
+    {
+        var code = order.Code?.Coding.FirstOrDefault()?.Code
+                   ?? throw new RequestRejected($"ServiceRequest/{order.Id} has no code");
+        return new RequestedService(1, code, [.. order.OrderDetail.SelectMany(d => d.Coding).Select(c => c.Code).OfType<string>()]);
+    }
+}
 
 /// <summary>
 /// A provider system asking what has become of the requests its organization sent for a Member, optionally narrowed

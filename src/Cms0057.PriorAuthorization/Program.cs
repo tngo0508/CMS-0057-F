@@ -2,6 +2,7 @@ using Cms0057.PriorAuthorization;
 using Cms0057.PriorAuthorization.Authentication;
 using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
+using Cms0057.PriorAuthorization.Dtr;
 using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
 using Cms0057.PriorAuthorization.Reports;
@@ -18,6 +19,9 @@ builder.Services.AddSingleton<IAuthorizationRules, ConfiguredAuthorizationRules>
 builder.Services.AddScoped<PriorAuthorizationRequests>();
 builder.Services.AddSingleton<PasProfiles>();
 builder.Services.AddSingleton<CoverageRequirements>();
+builder.Services.AddSingleton<DocumentationQuestionnaires>();
+builder.Services.AddSingleton<DocumentationRequirements>();
+builder.Services.AddSingleton<AdaptiveForms>();
 builder.Services.AddScoped<PasSubscriptions>();
 builder.Services.AddScoped<PriorAuthorizationMetrics>();
 builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
@@ -124,6 +128,34 @@ Protected(app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscrip
 // A provider system looks for the subscription it already holds before it subscribes again, as br-provider does.
 Protected(app.MapGet("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
     Fhir(await subscriptions.Find(QueryValue(http, "url"), QueryValue(http, "status"), ServerBase(http)))), "system/Subscription.read");
+
+// DTR: a provider system's DTR app asks what documentation a request needs and is handed the questionnaire(s).
+Protected(app.MapPost("/fhir/Questionnaire/$questionnaire-package", async (HttpRequest http, DocumentationRequirements dtr) =>
+{
+    try
+    {
+        using var reader = new StreamReader(http.Body);
+        return Fhir(dtr.Package(FhirJson.Read<Hl7.Fhir.Model.Parameters>(await reader.ReadToEndAsync()), ServerBase(http)));
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
+    }
+}), "system/Questionnaire.read");
+
+// DTR adaptive forms: the DTR app sends the answers so far and is handed the next questions.
+Protected(app.MapPost("/fhir/Questionnaire/$next-question", async (HttpRequest http, AdaptiveForms forms) =>
+{
+    try
+    {
+        using var reader = new StreamReader(http.Body);
+        return Fhir(forms.NextQuestion(FhirJson.Read<Hl7.Fhir.Model.Parameters>(await reader.ReadToEndAsync())));
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
+    }
+}), "system/Questionnaire.read");
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
 // system, as a registered client; no scope is needed beyond that.

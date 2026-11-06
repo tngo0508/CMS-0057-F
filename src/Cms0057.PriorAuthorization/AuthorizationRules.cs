@@ -10,8 +10,11 @@ public abstract record AuthorizationRule
     /// <summary>The plan does not prior-authorize this service.</summary>
     public sealed record NotRequired : AuthorizationRule;
 
-    /// <summary>A Reviewer must decide, by the Decision Deadline the time frame gives.</summary>
-    public sealed record RequiresReview(DecisionTimeframe Timeframe) : AuthorizationRule;
+    /// <summary>
+    /// A Reviewer must decide, by the Decision Deadline the time frame gives, on the strength of the Documentation
+    /// Questionnaires named (by canonical URL; none when the plan has not said what it asks for).
+    /// </summary>
+    public sealed record RequiresReview(DecisionTimeframe Timeframe, IReadOnlyList<string> Questionnaires) : AuthorizationRule;
 }
 
 /// <summary>
@@ -72,6 +75,12 @@ public sealed class PriorAuthorizationOptions
     /// "fhir-packages". A copy of the folder is all an offline machine needs.
     /// </summary>
     public string? FhirPackageFolder { get; set; }
+
+    /// <summary>
+    /// The folder holding the plan's Documentation Questionnaires, one FHIR Questionnaire per JSON file, relative
+    /// to the content root. Null means "questionnaires".
+    /// </summary>
+    public string? QuestionnaireFolder { get; set; }
 }
 
 /// <summary>One rule: which billing codes it covers and how long the plan has to decide.</summary>
@@ -91,6 +100,12 @@ public sealed class AuthorizationRequirement
 
     /// <summary>Calendar time to decide an expedited request, e.g. "3.00:00:00".</summary>
     public TimeSpan ExpeditedDecisionTime { get; set; }
+
+    /// <summary>
+    /// The canonical URL of the Documentation Questionnaire the plan asks a provider to complete with a request
+    /// under this rule; one of the questionnaires in the questionnaire folder. Null when the plan has not decided.
+    /// </summary>
+    public string? Questionnaire { get; set; }
 
     public bool Covers(RequestedService service) => Services.Any(configured =>
         string.Equals(configured.Code, service.Code, StringComparison.OrdinalIgnoreCase)
@@ -127,7 +142,9 @@ public sealed class ConfiguredAuthorizationRules(IOptions<PriorAuthorizationOpti
         var covering = options.Value.Requirements.Where(r => r.Covers(service)).ToList();
         return covering.Count == 0
             ? new AuthorizationRule.NotRequired()
-            : new AuthorizationRule.RequiresReview(Strictest(covering.Select(r => r.Timeframe)));
+            : new AuthorizationRule.RequiresReview(
+                Strictest(covering.Select(r => r.Timeframe)),
+                [.. covering.Select(r => r.Questionnaire).OfType<string>().Distinct()]);
     }
 
     /// <summary>Of several time frames, the one that gives the plan the least time on every count.</summary>

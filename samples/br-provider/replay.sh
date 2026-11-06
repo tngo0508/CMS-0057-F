@@ -7,7 +7,8 @@
 #
 # Usage: samples/br-provider/replay.sh [root]   (default http://localhost:5198)
 # Expect: 200/201 throughout; the H2012 request pended (A4), the H0019 one not required (A3) because br-provider
-# sends no modifiers; the inquiry answering with one responseBundle per request; the ClaimResponse readable by id.
+# sends no modifiers; the inquiry answering with one responseBundle per request; the questionnaire package with
+# one packagebundle; the ClaimResponse readable by id.
 set -u
 ROOT="${1:-http://localhost:5198}"
 BASE="$ROOT/fhir"
@@ -100,7 +101,13 @@ call submit-h0019 POST "$BASE/Claim/\$submit" "$OUT/request-h0019.json"
 # 3. Inquire (query by example, wildcard item).
 call inquire POST "$BASE/Claim/\$inquire" "$DIR/inquiry.json"
 
-# 4. The read br-provider falls back to when it has no context for an inquiry.
+# 4. DTR (its DTR_SCOPES): the questionnaire package, with the coverage as a resource, the questionnaire canonical
+#    the CRD coverage information named, the coverage assertion id as context, and the order.
+token "system/*.rs"
+call questionnaire-package POST "$BASE/Questionnaire/\$questionnaire-package" "$DIR/questionnaire-package.json"
+
+# 5. The read br-provider falls back to when it has no context for an inquiry.
+token "system/Claim.crus system/ClaimResponse.rs"
 CRID=$(python -I -c '
 import json,sys
 d=json.load(open(sys.argv[1],encoding="utf-8"))

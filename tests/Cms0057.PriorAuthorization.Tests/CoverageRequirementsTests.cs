@@ -39,6 +39,23 @@ public sealed class CoverageRequirementsTests : IDisposable
     }
 
     [Fact]
+    public async Task Signing_a_residential_treatment_order_says_which_documentation_the_plan_needs_with_the_request()
+    {
+        var response = await _api.OrderSign(HookRequests.OrderSign("H0019", "U1"));
+
+        Assert.Equal(("clinical", "withpa", Questionnaires.ResidentialTreatment),
+            (response.DocumentationNeeded, response.DocumentationPurpose, response.Questionnaire));
+    }
+
+    [Fact]
+    public async Task An_order_that_needs_no_authorization_asks_for_no_documentation()
+    {
+        var response = await _api.OrderSign(HookRequests.OrderSign("H0004", "U7"));
+
+        Assert.Equal((null, null), (response.DocumentationNeeded, response.Questionnaire));
+    }
+
+    [Fact]
     public async Task The_answer_comes_back_as_coverage_information_on_the_signed_order()
     {
         var response = await _api.OrderSign(HookRequests.OrderSign());

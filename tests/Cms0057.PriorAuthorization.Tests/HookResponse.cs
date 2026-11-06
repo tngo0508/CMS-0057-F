@@ -32,7 +32,14 @@ public sealed class HookResponse(HttpStatusCode status, string body)
 
     public string? Covered => CoverageInformation("covered")?.GetProperty("valueCode").GetString();
 
+    /// <summary>CRD: clinical, admin, patient, conditional or indeterminate.</summary>
     public string? DocumentationNeeded => CoverageInformation("doc-needed")?.GetProperty("valueCode").GetString();
+
+    /// <summary>CRD: withpa, withclaim, withorder, retain-doc or OTH.</summary>
+    public string? DocumentationPurpose => CoverageInformation("doc-purpose")?.GetProperty("valueCode").GetString();
+
+    /// <summary>The canonical URL of the questionnaire the payer wants completed.</summary>
+    public string? Questionnaire => CoverageInformation("questionnaire")?.GetProperty("valueCanonical").GetString();
 
     public string? CoverageReference =>
         CoverageInformation("coverage")?.GetProperty("valueReference").GetProperty("reference").GetString();

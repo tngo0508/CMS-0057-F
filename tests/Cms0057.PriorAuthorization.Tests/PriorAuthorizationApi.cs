@@ -36,9 +36,9 @@ public sealed class PriorAuthorizationApi(
     /// <summary>Every notification the service sends to provider systems lands here.</summary>
     public NotificationRecorder Notifications { get; } = new();
 
-    /// <summary>The provider system the tests act as, registered with the plan for every PAS scope.</summary>
+    /// <summary>The provider system the tests act as, registered with the plan for every PAS and DTR scope.</summary>
     public RegisteredSystem ProviderSystem { get; } =
-        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write");
+        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read");
 
     /// <summary>The EHR the tests act as for CRD; registered by the URL where it publishes its keys.</summary>
     public RegisteredSystem Ehr { get; } = new("synthetic-ehr", "system/Claim.read");
@@ -138,6 +138,22 @@ public sealed class PriorAuthorizationApi(
 
     public async Task<PasResponse> Inquire(string inquiryBundle, Caller? caller = null) =>
         await Post("/fhir/Claim/$inquire", inquiryBundle, caller ?? Caller.As(ProviderSystem));
+
+    /// <summary>The provider system's DTR app asks what documentation a request needs (DTR $questionnaire-package).</summary>
+    public async Task<DtrResponse> QuestionnairePackage(string parameters, Caller? caller = null) =>
+        await PostDtr("/fhir/Questionnaire/$questionnaire-package", parameters, caller);
+
+    /// <summary>The DTR app asks for the next questions of an adaptive form (DTR $next-question).</summary>
+    public async Task<DtrResponse> NextQuestion(string parameters, Caller? caller = null) =>
+        await PostDtr("/fhir/Questionnaire/$next-question", parameters, caller);
+
+    private async Task<DtrResponse> PostDtr(string path, string body, Caller? caller)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var content = new StringContent(body, Encoding.UTF8, "application/fhir+json");
+        using var response = await client.PostAsync(path, content);
+        return new DtrResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
 
     /// <summary>SMART discovery: where and how a provider system obtains an access token.</summary>
     public async Task<string> SmartConfiguration()

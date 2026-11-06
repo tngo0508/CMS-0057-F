@@ -45,7 +45,7 @@ public sealed class CoverageRequirements(IAuthorizationRules rules, TimeProvider
         var systemActions = new JsonArray();
         foreach (var order in request.Orders.OfType<ServiceRequest>())
         {
-            var rule = rules.For(RequestedServiceOf(order));
+            var rule = rules.For(RequestedService.OfOrder(order));
             var updated = (ServiceRequest)order.DeepCopy();
             updated.Extension.RemoveAll(e => e.Url == CoverageInformationUrl);
             updated.Extension.Add(CoverageInformation(request.Coverage, rule, today));
@@ -68,21 +68,17 @@ public sealed class CoverageRequirements(IAuthorizationRules rules, TimeProvider
         information.Extension.Add(new Extension("covered", new Code("covered")));
         information.Extension.Add(new Extension("pa-needed",
             new Code(rule is AuthorizationRule.RequiresReview ? "auth-needed" : "no-auth")));
+        if (rule is AuthorizationRule.RequiresReview { Questionnaires: [var questionnaire, ..] })
+        {
+            // What the plan wants completed and sent with the Prior Authorization Request; DTR fetches it by this
+            // canonical from the questionnaire package operation.
+            information.Extension.Add(new Extension("doc-needed", new Code("clinical")));
+            information.Extension.Add(new Extension("doc-purpose", new Code("withpa")));
+            information.Extension.Add(new Extension("questionnaire", new Canonical(questionnaire)));
+        }
         information.Extension.Add(new Extension("date", new Date(today)));
         information.Extension.Add(new Extension("coverage-assertion-id", new FhirString(Guid.NewGuid().ToString())));
         return information;
-    }
-
-    /// <summary>
-    /// The billed service: the order's code, with any HCPCS modifiers the EHR put in orderDetail. That is this
-    /// project's convention; ServiceRequest has no modifier element.
-    /// </summary>
-    private static RequestedService RequestedServiceOf(ServiceRequest order)
-    {
-        var code = order.Code?.Coding.FirstOrDefault()?.Code
-                   ?? throw new RequestRejected($"ServiceRequest/{order.Id} has no code");
-        // A draft order is a single service, so it is item 1.
-        return new RequestedService(1, code, [.. order.OrderDetail.SelectMany(d => d.Coding).Select(c => c.Code).OfType<string>()]);
     }
 
     private static HookRequest ReadHookRequest(string json)

@@ -1,0 +1,95 @@
+{
+  "resourceType": "Questionnaire",
+  "id": "residential-treatment",
+  "meta": {
+    "profile": [ "http://hl7.org/fhir/us/davinci-dtr/StructureDefinition/dtr-std-questionnaire" ]
+  },
+  "url": "http://example.org/behavioral-health-plan/Questionnaire/residential-treatment",
+  "version": "0.1.0",
+  "name": "ResidentialTreatmentDocumentation",
+  "title": "Residential Treatment Documentation",
+  "status": "draft",
+  "experimental": true,
+  "subjectType": [ "Patient" ],
+  "date": "2026-11-06",
+  "publisher": "SYNTHETIC BEHAVIORAL HEALTH PLAN (proof of concept)",
+  "description": "What the Behavioral Health Plan asks a provider to document with a Prior Authorization Request for residential substance use disorder treatment (H0019 with U1, U2 or U3; DHCS BHIN 24-001). A STARTING POINT drawn from the DMC-ODS medical necessity requirements, in which the level of care follows from an ASAM Criteria assessment; the plan's utilization management staff have yet to confirm the questions.",
+  "item": [
+    {
+      "linkId": "requested-service",
+      "text": "Service requested (billing code and modifier)",
+      "type": "string",
+      "readOnly": true
+    },
+    {
+      "linkId": "asam-level",
+      "text": "ASAM level of care the assessment indicates",
+      "type": "choice",
+      "required": true,
+      "answerOption": [
+        { "valueCoding": { "system": "http://example.org/behavioral-health-plan/CodeSystem/asam-level-of-care", "code": "3.1", "display": "3.1 Clinically managed low-intensity residential" } },
+        { "valueCoding": { "system": "http://example.org/behavioral-health-plan/CodeSystem/asam-level-of-care", "code": "3.3", "display": "3.3 Clinically managed population-specific high-intensity residential" } },
+        { "valueCoding": { "system": "http://example.org/behavioral-health-plan/CodeSystem/asam-level-of-care", "code": "3.5", "display": "3.5 Clinically managed high-intensity residential" } },
+        { "valueCoding": { "system": "http://example.org/behavioral-health-plan/CodeSystem/asam-level-of-care", "code": "3.7", "display": "3.7 Medically monitored intensive inpatient" } }
+      ]
+    },
+    {
+      "linkId": "asam-assessment-date",
+      "text": "Date of the ASAM Criteria assessment",
+      "type": "date",
+      "required": true
+    },
+    {
+      "linkId": "diagnosis",
+      "text": "Primary substance use disorder diagnosis (ICD-10-CM code)",
+      "type": "string",
+      "required": true
+    },
+    {
+      "linkId": "admission-date",
+      "text": "Requested admission date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "linkId": "length-of-stay",
+      "text": "Requested length of stay (days)",
+      "type": "integer",
+      "required": true
+    },
+    {
+      "linkId": "less-intensive-care",
+      "text": "Why a less intensive level of care would not meet the Member's needs",
+      "type": "text",
+      "required": true
+    },
+    {
+      "linkId": "prior-residential",
+      "text": "Has the Member had residential treatment in the last 12 months?",
+      "type": "boolean",
+      "required": true
+    },
+    {
+      "linkId": "prior-residential-episode",
+      "text": "Most recent residential episode",
+      "type": "group",
+      "enableWhen": [
+        { "question": "prior-residential", "operator": "=", "answerBoolean": true }
+      ],
+      "item": [
+        {
+          "linkId": "prior-residential-dates",
+          "text": "Admission and discharge dates",
+          "type": "string",
+          "required": true
+        },
+        {
+          "linkId": "prior-residential-outcome",
+          "text": "How the episode ended and what has changed since",
+          "type": "text",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

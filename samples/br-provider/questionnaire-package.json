@@ -1,0 +1,43 @@
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    {
+      "name": "coverage",
+      "resource": {
+        "resourceType": "Coverage",
+        "id": "coverage-90000001A",
+        "status": "active",
+        "subscriberId": "90000001A",
+        "beneficiary": { "reference": "Patient/patient-90000001A" },
+        "relationship": {
+          "coding": [
+            { "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" },
+            { "system": "https://codesystem.x12.org/005010/1069", "code": "18" }
+          ]
+        },
+        "payor": [{ "identifier": { "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }, "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" }]
+      }
+    },
+    {
+      "name": "questionnaire",
+      "valueCanonical": "http://example.org/behavioral-health-plan/Questionnaire/residential-treatment"
+    },
+    {
+      "name": "context",
+      "valueString": "c1a4e2f0-0000-4000-8000-000000000001"
+    },
+    {
+      "name": "order",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "order-h0019",
+        "status": "active",
+        "intent": "order",
+        "code": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] },
+        "subject": { "reference": "Patient/patient-90000001A" },
+        "authoredOn": "2026-11-06",
+        "insurance": [{ "reference": "Coverage/coverage-90000001A" }]
+      }
+    }
+  ]
+}
