@@ -161,29 +161,101 @@ public static class RequestBundles
         }
         """;
 
+    /// <summary>One item of an update: the service, and whether the provider changed or withdrew it.</summary>
+    public sealed record ItemChange((string Code, string Modifier) Service, bool Changed = false, bool Cancelled = false);
+
+    /// <summary>
+    /// An update to an earlier request, as PAS shapes it: Claim.related points at the prior Claim, which rides
+    /// along in the Bundle under its original identifier; changed items carry infoChanged and withdrawn items
+    /// the infoCancelled modifier extension.
+    /// </summary>
+    public static string Update(string priorBundleIdentifier, params ItemChange[] items) =>
+        ForItems([.. items.Select(i => i.Service)], KnownMember, null, "preauthorization", "normal",
+            priorBundleIdentifier, cancelWhole: false,
+            changed: [.. items.Select(i => i.Changed)], cancelled: [.. items.Select(i => i.Cancelled)]);
+
+    /// <summary>A cancellation of the whole earlier request: an update whose Claim carries certificationType 3.</summary>
+    public static string Cancel(string priorBundleIdentifier) =>
+        ForItems([Residential], KnownMember, null, "preauthorization", "normal", priorBundleIdentifier, cancelWhole: true);
+
+    /// <summary>A renewal: a new request whose items carry certificationType R.</summary>
+    public static string Renewal((string Code, string Modifier) service) =>
+        ForItems([service], KnownMember, null, "preauthorization", "normal", renewal: true);
+
     private static string ForItems(
         IReadOnlyList<(string Code, string Modifier)> services,
         string memberIdentifier,
         string? bundleIdentifier,
         string claimUse,
-        string priority)
+        string priority,
+        string? priorBundleIdentifier = null,
+        bool cancelWhole = false,
+        bool[]? changed = null,
+        bool[]? cancelled = null,
+        bool renewal = false)
     {
+        const string pas = "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/";
         bundleIdentifier ??= Guid.NewGuid().ToString("N");
-        var items = string.Join(",\n", services.Select((service, index) => $$"""
+
+        var claimExtensions = cancelWhole
+            ? $$"""
+              "extension": [{ "url": "{{pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "3" }] } }],
+              """
+            : "";
+        var related = priorBundleIdentifier is null
+            ? ""
+            : """
+              "related": [{ "claim": { "reference": "Claim/PriorRequest" } }],
+              """;
+        var priorClaimEntry = priorBundleIdentifier is null
+            ? ""
+            : $$"""
+              {
+                "fullUrl": "http://example.org/fhir/Claim/PriorRequest",
+                "resource": {
+                  "resourceType": "Claim",
+                  "id": "PriorRequest",
+                  "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "{{priorBundleIdentifier}}" }],
+                  "status": "active",
+                  "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
+                  "use": "preauthorization",
+                  "patient": { "reference": "Patient/MemberExample" },
+                  "created": "2026-11-06T09:59:00-08:00",
+                  "insurer": { "reference": "Organization/BehavioralHealthPlan" },
+                  "provider": { "reference": "Organization/TreatmentProvider" },
+                  "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
+                  "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }]
+                }
+              },
+              """;
+
+        var items = string.Join(",\n", services.Select((service, index) =>
+        {
+            var extensions = new List<string>
+            {
+                $$"""{ "url": "{{pas}}extension-itemTraceNumber", "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "{{1122334 + index}}" } }""",
+            };
+            if (changed?[index] == true)
+                extensions.Add($$"""{ "url": "{{pas}}extension-infoChanged", "valueCode": "changed" }""");
+            if (renewal)
+                extensions.Add($$"""{ "url": "{{pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "R" }] } }""");
+            var modifierExtensions = cancelled?[index] == true
+                ? $$"""
+                  "modifierExtension": [{ "url": "{{pas}}modifierextension-infoCancelled", "valueBoolean": true }],
+                  """
+                : "";
+            return $$"""
                   {
-                    "extension": [
-                      {
-                        "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-itemTraceNumber",
-                        "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "{{1122334 + index}}" }
-                      }
-                    ],
+                    "extension": [ {{string.Join(", ", extensions)}} ],
+                    {{modifierExtensions}}
                     "sequence": {{index + 1}},
                     "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI", "display": "Substance Abuse" }] },
                     "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Code}}" }] },
                     "modifier": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Modifier}}" }] }],
                     "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] }
                   }
-                  """));
+                  """;
+        }));
 
         return $$"""
         {
@@ -199,9 +271,11 @@ public static class RequestBundles
                 "resourceType": "Claim",
                 "id": "ResidentialRequest",
                 "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-claim"] },
+                {{claimExtensions}}
                 "identifier": [
                   { "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "{{bundleIdentifier}}" }
                 ],
+                {{related}}
                 "status": "active",
                 "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
                 "use": "{{claimUse}}",
@@ -216,6 +290,7 @@ public static class RequestBundles
                 ]
               }
             },
+            {{priorClaimEntry}}
             {
               "fullUrl": "http://example.org/fhir/Organization/TreatmentProvider",
               "resource": {

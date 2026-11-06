@@ -46,6 +46,34 @@ public sealed class PriorAuthorizationRequests(
     private Task<PriorAuthorizationRequest?> Submitted(Submission submission) =>
         db.Requests.SingleOrDefaultAsync(r => r.SubmissionIdentifier == submission.SubmissionIdentifier);
 
+    /// <summary>A provider updates a request it sent earlier. Returns the request as it now stands.</summary>
+    /// <exception cref="RequestRejected">No such request, or it is no longer Pended.</exception>
+    public async Task<PriorAuthorizationRequest> Update(RequestUpdate update)
+    {
+        var request = await Prior(update.PriorClaimIdentifier);
+        request.Update(update.Items, rules, update.RequestBundle);
+        await db.SaveChangesAsync();
+        return request;
+    }
+
+    /// <summary>A provider cancels a request it sent earlier. Returns the request as it now stands.</summary>
+    /// <exception cref="RequestRejected">No such request, or it was denied.</exception>
+    public async Task<PriorAuthorizationRequest> Cancel(RequestCancellation cancellation)
+    {
+        var request = await Prior(cancellation.PriorClaimIdentifier);
+        request.Cancel(clock.GetUtcNow());
+        await db.SaveChangesAsync();
+        return request;
+    }
+
+    /// <summary>The most recent request whose Claim carried this identifier; the wording is br-payer's.</summary>
+    private async Task<PriorAuthorizationRequest> Prior(string claimIdentifier) =>
+        await db.Requests
+            .Where(r => r.ClaimIdentifier == claimIdentifier)
+            .OrderByDescending(r => r.ReceivedAt)
+            .FirstOrDefaultAsync()
+        ?? throw new RequestRejected("No stored authorization found matching the prior Claim identifier");
+
     /// <summary>
     /// The requests an inquiry asks about, oldest first: the Member's, and only those the inquiring organization
     /// sent itself.

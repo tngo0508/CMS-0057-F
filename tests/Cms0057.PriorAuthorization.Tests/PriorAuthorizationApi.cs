@@ -135,6 +135,7 @@ public sealed record MetricsReport(
     int RequestsReceived,
     int Approved,
     int Denied,
+    int Cancelled,
     int Undecided,
     double? ApprovedPercent,
     double? DeniedPercent,

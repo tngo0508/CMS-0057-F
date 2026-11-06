@@ -93,6 +93,11 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<string>("ClaimIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
                     b.Property<DateTimeOffset?>("DecidedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -144,6 +149,8 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ClaimIdentifier");
+
                     b.HasIndex("SubmissionIdentifier")
                         .IsUnique();
 
@@ -159,6 +166,9 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                                 .HasColumnType("int");
 
                             SqlServerPropertyBuilderExtensions.UseIdentityColumn(b1.Property<int>("Id"));
+
+                            b1.Property<bool>("Cancelled")
+                                .HasColumnType("bit");
 
                             b1.Property<string>("Modifiers")
                                 .IsRequired()

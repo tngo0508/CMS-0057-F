@@ -11,6 +11,7 @@ namespace Cms0057.PriorAuthorization.Reports;
 /// <remarks>
 /// Counts only requests that needed a Prior Authorization Decision: a Not Required answer is not a request for
 /// prior authorization, and a rejected submission is an error that was never recorded, so neither is ever a denial.
+/// A request the provider cancelled is counted as cancelled, not as denied.
 /// The rule's further breakdowns (expedited against standard, approved after appeal, extended time frames) wait on
 /// the service recording those things; see the open issues.
 /// </remarks>
@@ -22,6 +23,7 @@ public sealed class PriorAuthorizationMetrics(PriorAuthorizationDbContext db, IO
         int RequestsReceived,
         int Approved,
         int Denied,
+        int Cancelled,
         int Undecided,
         double? ApprovedPercent,
         double? DeniedPercent,
@@ -41,8 +43,9 @@ public sealed class PriorAuthorizationMetrics(PriorAuthorizationDbContext db, IO
         var received = requests.Count;
         var approved = requests.Count(r => r.State == RequestState.Approved);
         var denied = requests.Count(r => r.State == RequestState.Denied);
+        var cancelled = requests.Count(r => r.State == RequestState.Cancelled);
         var hoursToDecision = requests
-            .Where(r => r.DecidedAt is not null)
+            .Where(r => r.State is RequestState.Approved or RequestState.Denied && r.DecidedAt is not null)
             .Select(r => (r.DecidedAt!.Value - r.ReceivedAt).TotalHours)
             .Order()
             .ToList();
@@ -53,7 +56,8 @@ public sealed class PriorAuthorizationMetrics(PriorAuthorizationDbContext db, IO
             RequestsReceived: received,
             Approved: approved,
             Denied: denied,
-            Undecided: received - approved - denied,
+            Cancelled: cancelled,
+            Undecided: received - approved - denied - cancelled,
             ApprovedPercent: Percent(approved, received),
             DeniedPercent: Percent(denied, received),
             AverageHoursToDecision: hoursToDecision.Count == 0 ? null : Math.Round(hoursToDecision.Average(), 1),

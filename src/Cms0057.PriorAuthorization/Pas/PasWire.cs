@@ -16,6 +16,10 @@ public static class PasWire
     private const string AuthorizationNumberUrl = PasBase + "extension-authorizationNumber";
     private const string ItemPreAuthIssueDateUrl = PasBase + "extension-itemPreAuthIssueDate";
     private const string ItemPreAuthPeriodUrl = PasBase + "extension-itemPreAuthPeriod";
+    private const string CertificationTypeUrl = PasBase + "extension-certificationType";
+    private const string InfoCancelledUrl = PasBase + "modifierextension-infoCancelled";
+    /// <summary>X12 1322 Certification Type Code 3: cancel.</summary>
+    private const string CancelCertificationType = "3";
     private const string ResponseBundleProfile = PasBase + "profile-pas-response-bundle";
     private const string InquiryResponseBundleProfile = PasBase + "profile-pas-inquiry-response-bundle";
     private const string ClaimResponseProfile = PasBase + "profile-claimresponse";
@@ -28,12 +32,41 @@ public static class PasWire
 
     public static string Write(Resource resource) => FhirJson.Write(resource);
 
-    /// <summary>Reads what the service needs from a PAS request Bundle.</summary>
+    /// <summary>
+    /// Reads what the service needs from a PAS request Bundle: a new request (a renewal is one), an update, or a
+    /// cancellation. As in br-payer, the kind is told from the Claim's structure, not its declared profile:
+    /// Claim.related names a prior Claim for an update or cancellation, and a Claim-level certificationType of 3
+    /// makes it a cancellation.
+    /// </summary>
     /// <exception cref="RequestRejected">The body is not a PAS request this service can process.</exception>
-    public static Submission ReadSubmission(string requestBundle)
+    public static PasSubmission ReadSubmission(string requestBundle)
     {
         var bundle = ParseRequest(requestBundle);
         var claim = RequireClaim(bundle);
+
+        if (claim.Related.FirstOrDefault()?.Claim is { Reference: not null } priorReference)
+        {
+            var prior = TryResolve<Claim>(bundle, priorReference)
+                ?? throw new RequestRejected("The prior Claim referenced in Claim.related.claim must be included in the Bundle");
+            Require(prior.Identifier.Count > 0, "Prior Claim must have an identifier for matching to stored authorization");
+            var priorIdentifier = $"{prior.Identifier[0].System}|{prior.Identifier[0].Value}";
+
+            if (HasCertificationType(claim.Extension, CancelCertificationType))
+                return new RequestCancellation(priorIdentifier);
+
+            return new RequestUpdate(
+                priorIdentifier,
+                [.. claim.Item.Select((item, index) => new ItemUpdate(
+                    ServiceOf(item, index),
+                    Cancelled: item.ModifierExtension.Any(e => e.Url == InfoCancelledUrl)))],
+                requestBundle);
+        }
+
+        return ReadNewRequest(bundle, claim, requestBundle);
+    }
+
+    private static Submission ReadNewRequest(Bundle bundle, Claim claim, string requestBundle)
+    {
 
         // The same structural checks, with the same wording, as br-payer's PasBundleValidator.
         Require(claim.Item.Count > 0, "Claim must have at least one item");
@@ -50,24 +83,30 @@ public static class PasWire
         foreach (var each in claim.Item)
             Require(each.ProductOrService?.Coding.FirstOrDefault()?.Code is not null,
                 $"Claim.item.productOrService is required for item {each.Sequence}");
+        Require(claim.Identifier.Count > 0, "Claim.identifier is required");
         var member = Resolve<Patient>(bundle, claim.Patient);
         Require(member.Identifier.Count > 0, "The Patient must carry a member identifier");
 
         return new Submission(
-            SubmissionIdentifier: $"{bundle.Identifier.System}|{bundle.Identifier.Value}",
+            SubmissionIdentifier: $"{bundle.Identifier!.System}|{bundle.Identifier.Value}",
+            ClaimIdentifier: $"{claim.Identifier[0].System}|{claim.Identifier[0].Value}",
             MemberIdentifier: MemberIdentifier(member),
             ProviderIdentifier: ProviderIdentifier(bundle, claim.Provider),
             // PAS marks an expedited request with the "stat" process priority.
             Expedited: claim.Priority?.Coding.Any(c => c.Code == "stat") == true,
-            Services:
-            [
-                .. claim.Item.Select((item, index) => new RequestedService(
-                    item.Sequence ?? index + 1,
-                    item.ProductOrService!.Coding[0].Code!,
-                    [.. item.Modifier.SelectMany(m => m.Coding).Select(c => c.Code).OfType<string>()])),
-            ],
+            Services: [.. claim.Item.Select(ServiceOf)],
             RequestBundle: requestBundle);
     }
+
+    private static RequestedService ServiceOf(Claim.ItemComponent item, int index) => new(
+        item.Sequence ?? index + 1,
+        item.ProductOrService!.Coding[0].Code!,
+        [.. item.Modifier.SelectMany(m => m.Coding).Select(c => c.Code).OfType<string>()]);
+
+    private static bool HasCertificationType(IEnumerable<Extension> extensions, string code) =>
+        extensions.Any(e => e.Url == CertificationTypeUrl
+                            && e.Value is CodeableConcept concept
+                            && concept.Coding.Any(c => c.Code == code));
 
     /// <summary>Reads what the service needs from a PAS inquiry Bundle.</summary>
     /// <exception cref="RequestRejected">The body is not a PAS inquiry this service can process.</exception>
@@ -134,8 +173,8 @@ public static class PasWire
 
         foreach (var (requested, index) in claim.Item.Select((item, index) => (item, index)))
         {
-            // Each item is answered on its own: one the Reviewer decides on follows the request; any other is Not Required.
-            var state = request.RequiresReview(requested.Sequence ?? index + 1) ? request.State : RequestState.NotRequired;
+            // Each item is answered on its own; see PriorAuthorizationRequest.StateOf.
+            var state = request.StateOf(requested.Sequence ?? index + 1);
 
             var item = new ClaimResponse.ItemComponent { ItemSequence = requested.Sequence };
             foreach (var trace in requested.Extension.Where(e => e.Url == ItemTraceNumberUrl))
@@ -170,18 +209,21 @@ public static class PasWire
                 if (request.DenialReasonCode is not null)
                     reason.Coding.Add(new Coding(ReviewDecisionReasonSystem, request.DenialReasonCode, request.DenialReasonDisplay));
                 reviewAction.Extension.Add(new Extension("reasonCode", reason));
+            }
 
-                // A process note repeats the words where any ClaimResponse reader will find them; that placement is ours.
-                item.NoteNumber = [1];
-                claimResponse.ProcessNote =
-                [
-                    new ClaimResponse.NoteComponent
-                    {
-                        Number = 1,
-                        Type = NoteType.Display,
-                        Text = request.DenialReason,
-                    },
-                ];
+            // A process note says in words why an item is not certified, where any ClaimResponse reader will find
+            // it; that placement is ours.
+            var note = state switch
+            {
+                RequestState.Denied => request.DenialReason,
+                RequestState.Cancelled => "Cancelled at the provider's request",
+                _ => null,
+            };
+            if (note is not null)
+            {
+                var number = claimResponse.ProcessNote.FirstOrDefault(n => n.Text == note)?.Number
+                             ?? AddNote(claimResponse, note);
+                item.NoteNumber = [number];
             }
 
             var adjudication = new ClaimResponse.AdjudicationComponent
@@ -208,10 +250,18 @@ public static class PasWire
         return response;
     }
 
+    private static int AddNote(ClaimResponse claimResponse, string text)
+    {
+        var number = claimResponse.ProcessNote.Count + 1;
+        claimResponse.ProcessNote.Add(new ClaimResponse.NoteComponent { Number = number, Type = NoteType.Display, Text = text });
+        return number;
+    }
+
+    /// <summary>X12 306 has no code for a cancellation; as in br-payer, a cancelled item is Not Certified.</summary>
     private static (string Code, string Display) ReviewAction(RequestState state) => state switch
     {
         RequestState.Approved => ("A1", "Certified in total"),
-        RequestState.Denied => ("A2", "Not Certified"),
+        RequestState.Denied or RequestState.Cancelled => ("A2", "Not Certified"),
         RequestState.NotRequired => ("A3", "Not Required"),
         _ => ("A4", "Pended"),
     };

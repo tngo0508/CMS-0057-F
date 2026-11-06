@@ -34,8 +34,13 @@ app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRe
     try
     {
         using var reader = new StreamReader(http.Body);
-        var submission = PasWire.ReadSubmission(await reader.ReadToEndAsync());
-        var request = await requests.Receive(submission);
+        var request = PasWire.ReadSubmission(await reader.ReadToEndAsync()) switch
+        {
+            Submission submission => await requests.Receive(submission),
+            RequestUpdate update => await requests.Update(update),
+            RequestCancellation cancellation => await requests.Cancel(cancellation),
+            var other => throw new InvalidOperationException($"Unknown submission {other.GetType().Name}"),
+        };
         return Fhir(PasWire.Response(request, ServerBase(http)));
     }
     catch (RequestRejected rejected)

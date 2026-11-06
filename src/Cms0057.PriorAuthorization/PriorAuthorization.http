@@ -249,3 +249,60 @@ Content-Type: application/fhir+json
 # Expect: 200 with counts of requests that needed a decision, approved/denied percentages and the
 # average and median hours to a decision. Without ?year= the report is for last year.
 GET {{baseUrl}}/reports/prior-authorization-metrics?year=2026
+
+### 6. Provider cancels the request from step 1 (while it is Pended, or after approval).
+# Expect: 200 with every item "A2" and a process note "Cancelled at the provider's request"; the request
+# leaves the Reviewer's list. Cancelling a denied request gives 400. An update is the same Bundle without
+# the certificationType extension, carrying the new items (withdrawn ones with the infoCancelled modifier extension).
+POST {{baseUrl}}/fhir/Claim/$submit
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Bundle",
+  "identifier": { "system": "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER", "value": "cancel-{{$timestamp}}" },
+  "type": "collection",
+  "timestamp": "2026-11-06T12:00:00-08:00",
+  "entry": [
+    {
+      "fullUrl": "http://example.org/fhir/Claim/CancelRequest",
+      "resource": {
+        "resourceType": "Claim",
+        "id": "CancelRequest",
+        "extension": [{ "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "3" }] } }],
+        "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "cancel-{{$timestamp}}" }],
+        "related": [{ "claim": { "reference": "Claim/PriorRequest" } }],
+        "status": "active",
+        "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
+        "use": "preauthorization",
+        "patient": { "reference": "Patient/MemberExample" },
+        "created": "2026-11-06T12:00:00-08:00",
+        "insurer": { "reference": "Organization/BehavioralHealthPlan" },
+        "provider": { "reference": "Organization/TreatmentProvider" },
+        "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
+        "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
+        "item": [{ "sequence": 1, "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI" }] }, "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] }, "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] } }]
+      }
+    },
+    {
+      "fullUrl": "http://example.org/fhir/Claim/PriorRequest",
+      "resource": {
+        "resourceType": "Claim",
+        "id": "PriorRequest",
+        "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "{{submit.request.body.$.identifier.value}}" }],
+        "status": "active",
+        "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
+        "use": "preauthorization",
+        "patient": { "reference": "Patient/MemberExample" },
+        "created": "2026-11-06T09:59:00-08:00",
+        "insurer": { "reference": "Organization/BehavioralHealthPlan" },
+        "provider": { "reference": "Organization/TreatmentProvider" },
+        "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
+        "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }]
+      }
+    },
+    { "fullUrl": "http://example.org/fhir/Organization/TreatmentProvider", "resource": { "resourceType": "Organization", "id": "TreatmentProvider", "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "8189991234" }], "active": true, "name": "SYNTHETIC RECOVERY HOUSE" } },
+    { "fullUrl": "http://example.org/fhir/Organization/BehavioralHealthPlan", "resource": { "resourceType": "Organization", "id": "BehavioralHealthPlan", "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }], "active": true, "name": "SYNTHETIC BEHAVIORAL HEALTH PLAN" } },
+    { "fullUrl": "http://example.org/fhir/Coverage/MemberCoverage", "resource": { "resourceType": "Coverage", "id": "MemberCoverage", "status": "active", "subscriberId": "90000001A", "beneficiary": { "reference": "Patient/MemberExample" }, "payor": [{ "reference": "Organization/BehavioralHealthPlan" }] } },
+    { "fullUrl": "http://example.org/fhir/Patient/MemberExample", "resource": { "resourceType": "Patient", "id": "MemberExample", "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }], "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }] } }
+  ]
+}

@@ -68,6 +68,12 @@ _Avoid_: Urgent, stat (except as the FHIR priority code), rush
 The state of a Prior Authorization Request whose Decision Deadline has passed without a Prior Authorization Decision.
 _Avoid_: Late, expired, deemed denied
 
+**Cancelled**:
+The state of a Prior Authorization Request the provider has withdrawn. A Pended request leaves the Reviewer's list;
+an approved one loses its authorization; a denied one cannot be cancelled. A cancellation is never a Prior
+Authorization Decision and never counts as a denial.
+_Avoid_: Voided, withdrawn (as a state name), revoked
+
 **Not Required**:
 The immediate answer to a Prior Authorization Request for a service the Behavioral Health Plan does not prior-authorize.
 It is not a Prior Authorization Decision and the request never becomes Pended.

@@ -8,6 +8,8 @@ public enum RequestState
     Denied,
     /// <summary>The service is one the Behavioral Health Plan does not prior-authorize.</summary>
     NotRequired,
+    /// <summary>Withdrawn by the provider. Never a Prior Authorization Decision, so never a denial.</summary>
+    Cancelled,
 }
 
 /// <summary>
@@ -22,6 +24,9 @@ public sealed class PriorAuthorizationRequest
 
     /// <summary>The provider system's identifier for the submission; a repeat of it is the same request.</summary>
     public string SubmissionIdentifier { get; private set; } = "";
+
+    /// <summary>The Claim's own identifier (its trace number), which a later update or cancellation quotes.</summary>
+    public string ClaimIdentifier { get; private set; } = "";
 
     public string MemberIdentifier { get; private set; } = "";
 
@@ -78,6 +83,7 @@ public sealed class PriorAuthorizationRequest
         {
             Id = Guid.NewGuid(),
             SubmissionIdentifier = submission.SubmissionIdentifier,
+            ClaimIdentifier = submission.ClaimIdentifier,
             MemberIdentifier = submission.MemberIdentifier,
             ProviderIdentifier = submission.ProviderIdentifier,
             Expedited = submission.Expedited,
@@ -91,8 +97,63 @@ public sealed class PriorAuthorizationRequest
         return request;
     }
 
+    /// <summary>
+    /// The provider changes what it asked for while the request is still Pended. The items are replaced and judged
+    /// afresh; a withdrawn item is answered as cancelled. The Decision Deadline does not move: the clock started at
+    /// receipt and nothing pauses it (42 CFR 438.210(d)). If nothing is left to review, the request has nothing to
+    /// decide. A request already decided cannot be updated: the provider sends a new one.
+    /// </summary>
+    /// <exception cref="RequestRejected">The request is Denied, Approved or Cancelled.</exception>
+    public void Update(IReadOnlyList<ItemUpdate> items, IAuthorizationRules rules, string requestBundle)
+    {
+        switch (State)
+        {
+            case RequestState.Denied:
+                throw new RequestRejected("Cannot update a denied prior authorization (review action A2)");
+            case RequestState.Approved:
+                throw new RequestRejected("Cannot update an approved prior authorization; send a new request");
+            case RequestState.Cancelled:
+                throw new RequestRejected("Cannot update a cancelled prior authorization; send a new request");
+        }
+
+        _items.Clear();
+        _items.AddRange(items.Select(i => i.Cancelled
+            ? RequestedItem.Of(i.Service, requiresReview: false, cancelled: true)
+            : RequestedItem.Of(i.Service, requiresReview: rules.For(i.Service) is AuthorizationRule.RequiresReview)));
+        RequestBundle = requestBundle;
+        State = _items.Any(i => i.RequiresReview) ? RequestState.Pended : RequestState.NotRequired;
+    }
+
+    /// <summary>
+    /// The provider withdraws the whole request. A Pended request leaves the Reviewer's list; an approved one loses
+    /// its authorization. Cancelling twice changes nothing.
+    /// </summary>
+    /// <exception cref="RequestRejected">The request is Denied; as in PAS, a denial cannot be cancelled.</exception>
+    public void Cancel(DateTimeOffset now)
+    {
+        if (State == RequestState.Denied)
+            throw new RequestRejected("Cannot cancel a denied prior authorization (review action A2)");
+        if (State == RequestState.Cancelled) return;
+        State = RequestState.Cancelled;
+        DecidedAt = now;
+        AuthorizationNumber = null;
+        AuthorizationEnds = null;
+    }
+
     /// <summary>Whether the item with this sequence number is one the Reviewer decides on.</summary>
     public bool RequiresReview(int sequence) => _items.FirstOrDefault(i => i.Sequence == sequence)?.RequiresReview ?? false;
+
+    /// <summary>
+    /// The answer for one item: cancelled items, and every item of a cancelled request, are Cancelled; an item
+    /// under review follows the request; any other is Not Required.
+    /// </summary>
+    public RequestState StateOf(int sequence)
+    {
+        if (State == RequestState.Cancelled) return RequestState.Cancelled;
+        var item = _items.FirstOrDefault(i => i.Sequence == sequence);
+        if (item is { Cancelled: true }) return RequestState.Cancelled;
+        return item is { RequiresReview: true } ? State : RequestState.NotRequired;
+    }
 
     public bool IsOverdue(DateTimeOffset now) => State == RequestState.Pended && now > DecisionDeadline;
 
@@ -164,23 +225,45 @@ public sealed class RequestedItem
     /// <summary>True when this item is what the request is Pended for; false when it is Not Required.</summary>
     public bool RequiresReview { get; private set; }
 
-    public static RequestedItem Of(RequestedService service, bool requiresReview) => new()
+    /// <summary>True when the provider withdrew this item in an update.</summary>
+    public bool Cancelled { get; private set; }
+
+    public static RequestedItem Of(RequestedService service, bool requiresReview, bool cancelled = false) => new()
     {
         Sequence = service.Sequence,
         ServiceCode = service.Code,
         Modifiers = string.Join(' ', service.Modifiers),
         RequiresReview = requiresReview,
+        Cancelled = cancelled,
     };
 }
 
-/// <summary>What the service takes from a submitted request Bundle.</summary>
+/// <summary>What a provider system sends to Claim/$submit: a new request, an update, or a cancellation.</summary>
+public abstract record PasSubmission
+{
+    private protected PasSubmission() { }
+}
+
+/// <summary>A new Prior Authorization Request (a renewal is one too), as read from its Bundle.</summary>
 public sealed record Submission(
     string SubmissionIdentifier,
+    string ClaimIdentifier,
     string MemberIdentifier,
     string? ProviderIdentifier,
     bool Expedited,
     IReadOnlyList<RequestedService> Services,
-    string RequestBundle);
+    string RequestBundle) : PasSubmission;
+
+/// <summary>An update to the request whose Claim carried <paramref name="PriorClaimIdentifier"/>.</summary>
+public sealed record RequestUpdate(
+    string PriorClaimIdentifier,
+    IReadOnlyList<ItemUpdate> Items,
+    string RequestBundle) : PasSubmission;
+
+/// <summary>A cancellation of the whole request whose Claim carried <paramref name="PriorClaimIdentifier"/>.</summary>
+public sealed record RequestCancellation(string PriorClaimIdentifier) : PasSubmission;
+
+public sealed record ItemUpdate(RequestedService Service, bool Cancelled);
 
 public sealed record RequestedService(int Sequence, string Code, IReadOnlyList<string> Modifiers);
 

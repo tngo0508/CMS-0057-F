@@ -67,13 +67,12 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 
 Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
 expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
-health services); several items per request; approval and denial with the rule's required content, including coded
-Denial Reasons; overdue tracking; the public metrics report.
+health services); several items per request; updates, cancellations and renewals; approval and denial with the
+rule's required content, including coded Denial Reasons; overdue tracking; the public metrics report.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, SMART on FHIR
-authentication, a Reviewer screen, FHIR profile validation, request updates and cancellations, and the rule's other
-three APIs (Patient Access, Provider Access, Payer-to-Payer). Several issues are questions for the agency rather
-than work items.
+authentication, a Reviewer screen, FHIR profile validation, and the rule's other three APIs (Patient Access,
+Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work items.
 
 ## Sources and attribution
 
