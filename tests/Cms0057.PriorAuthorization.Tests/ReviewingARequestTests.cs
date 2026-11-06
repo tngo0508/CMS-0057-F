@@ -77,6 +77,24 @@ public sealed class ReviewingARequestTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_authorization_cannot_end_before_the_day_it_is_approved()
+    {
+        // The clock stands at 2026-11-06.
+        var status = await _api.Approve(_pended, authorizationEnds: "2026-11-05");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("A4", (await _api.Inquire(RequestBundles.Inquiry())).ReviewActionCode);
+    }
+
+    [Fact]
+    public async Task An_authorization_may_end_on_the_day_it_is_approved()
+    {
+        var status = await _api.Approve(_pended, authorizationEnds: "2026-11-06");
+
+        Assert.Equal(HttpStatusCode.NoContent, status);
+    }
+
+    [Fact]
     public async Task A_refused_approval_leaves_the_request_pended()
     {
         await _api.Approve(_pended, authorizationEnds: null);

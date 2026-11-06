@@ -64,12 +64,19 @@ public sealed class PriorAuthorizationRequest
 
     public bool IsOverdue(DateTimeOffset now) => State == RequestState.Pended && now > DecisionDeadline;
 
-    /// <summary>A Reviewer approves the request. The approval must say when the authorization ends.</summary>
+    /// <summary>
+    /// A Reviewer approves the request. The approval must say when the authorization ends, and that cannot be
+    /// before the day of the decision.
+    /// </summary>
     public void Approve(DateOnly? authorizationEnds, DateTimeOffset now)
     {
         RequirePended();
-        AuthorizationEnds = authorizationEnds
+        var ends = authorizationEnds
             ?? throw new DecisionRefused("An approval must state the date the authorization ends");
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        if (ends < today)
+            throw new DecisionRefused($"The authorization cannot end before the day it is approved ({today:yyyy-MM-dd})");
+        AuthorizationEnds = ends;
         AuthorizationNumber = "AUTH-" + ShortId;
         State = RequestState.Approved;
         DecidedAt = now;
