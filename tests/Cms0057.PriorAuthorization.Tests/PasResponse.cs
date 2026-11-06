@@ -32,6 +32,34 @@ public sealed class PasResponse
 
     public string ClaimResponseId => ClaimResponse.GetProperty("id").GetString()!;
 
+    /// <summary>The id and status of a Subscription the service accepted.</summary>
+    public (string? Id, string? Status) Subscription
+    {
+        get
+        {
+            var root = JsonDocument.Parse(Body).RootElement;
+            return (root.TryGetProperty("id", out var id) ? id.GetString() : null,
+                root.TryGetProperty("status", out var status) ? status.GetString() : null);
+        }
+    }
+
+    /// <summary>For a subscription notification: the first entry's resource type and the topic it names.</summary>
+    public (string ResourceType, string? Topic) NotificationStatus
+    {
+        get
+        {
+            var first = JsonDocument.Parse(Body).RootElement.GetProperty("entry")[0].GetProperty("resource");
+            string? topic = null;
+            if (first.TryGetProperty("parameter", out var parameters))
+                foreach (var parameter in parameters.EnumerateArray())
+                    if (parameter.GetProperty("name").GetString() == "topic")
+                        topic = parameter.GetProperty("valueCanonical").GetString();
+            return (first.GetProperty("resourceType").GetString()!, topic);
+        }
+    }
+
+    public string BundleType => JsonDocument.Parse(Body).RootElement.GetProperty("type").GetString()!;
+
     /// <summary>X12 306 review action: A1 certified, A2 not certified, A3 not required, A4 pended.</summary>
     public string ReviewActionCode =>
         Extension(ReviewAction, Pas + "extension-reviewActionCode")!.Value

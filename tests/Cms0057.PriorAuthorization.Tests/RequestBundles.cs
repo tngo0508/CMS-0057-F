@@ -20,6 +20,51 @@ public static class RequestBundles
     public static string OutpatientCounseling(string modifier = "U7") =>
         ForService("H0004", modifier, KnownMember, null, "preauthorization");
 
+    /// <summary>The NPI of the treatment provider that sends every request in these tests.</summary>
+    public const string TreatmentProviderNpi = "8189991234";
+
+    /// <summary>
+    /// A provider system asking to be notified of decisions, built exactly as br-provider's
+    /// pas-subscription-builder builds it.
+    /// </summary>
+    public static string Subscription(
+        string orgIdentifier = TreatmentProviderNpi,
+        string notificationUrl = "http://provider.example.org/api/pas/notification",
+        bool withFilter = true) => $$"""
+        {
+          "resourceType": "Subscription",
+          "meta": {
+            "profile": [
+              "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-subscription",
+              "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-subscription"
+            ]
+          },
+          "status": "requested",
+          "reason": "Monitor PAS authorization notifications via REST hook",
+          "criteria": "http://hl7.org/fhir/us/davinci-pas/SubscriptionTopic/PASSubscriptionTopic",
+          {{(withFilter ? $$"""
+          "_criteria": {
+            "extension": [
+              {
+                "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-filter-criteria",
+                "valueString": "org-identifier={{orgIdentifier}}"
+              }
+            ]
+          },
+          """ : "")}}
+          "channel": {
+            "type": "rest-hook",
+            "endpoint": "{{notificationUrl}}",
+            "payload": "application/fhir+json",
+            "_payload": {
+              "extension": [
+                { "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-payload-content", "valueCode": "full-resource" }
+              ]
+            }
+          }
+        }
+        """;
+
     /// <summary>
     /// A provider system asking what has become of a Member's requests. The shape follows br-payer's
     /// PASClaimInquiryBundleExample.

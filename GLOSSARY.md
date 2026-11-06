@@ -70,6 +70,11 @@ _Avoid_: Auth ID, reference number, tracking number
 The specific, plain-language explanation a Reviewer must give when denying a Prior Authorization Request.
 _Avoid_: Rejection reason, denial code
 
+**Decision Subscription**:
+A provider system's standing request to be told, at an address it names, whenever a Prior Authorization Request its
+organization sent receives a Prior Authorization Decision.
+_Avoid_: Webhook, callback, notification subscription (unqualified)
+
 **Coverage Information**:
 The Behavioral Health Plan's answer, attached to an order as the clinician signs it, saying whether the service is
 covered and whether a Prior Authorization Request is needed.

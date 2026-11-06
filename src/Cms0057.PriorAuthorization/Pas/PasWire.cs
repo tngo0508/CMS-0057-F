@@ -23,6 +23,7 @@ public static class PasWire
     private const string AdjudicationSystem = "http://terminology.hl7.org/CodeSystem/adjudication";
     private const string IdentifierTypeSystem = "http://terminology.hl7.org/CodeSystem/v2-0203";
     private const string SubmissionIdentifierSystem = "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER";
+    private const string NpiSystem = "http://hl7.org/fhir/sid/us-npi";
 
     public static string Write(Resource resource) => FhirJson.Write(resource);
 
@@ -54,6 +55,7 @@ public static class PasWire
         return new Submission(
             SubmissionIdentifier: $"{bundle.Identifier.System}|{bundle.Identifier.Value}",
             MemberIdentifier: MemberIdentifier(member),
+            ProviderIdentifier: ProviderIdentifier(bundle, claim.Provider),
             Service: new RequestedService(
                 item.ProductOrService.Coding[0].Code,
                 [.. item.Modifier.SelectMany(m => m.Coding).Select(c => c.Code)]),
@@ -204,6 +206,19 @@ public static class PasWire
 
     private static bool HasMemberIdentifier(Patient member) => member.Identifier.Any(IsMemberIdentifier);
 
+    /// <summary>The sending organization's identifier, its NPI when it has one; null when the Bundle gives none.</summary>
+    private static string? ProviderIdentifier(Bundle bundle, ResourceReference provider)
+    {
+        var identifiers = TryResolve<Resource>(bundle, provider) switch
+        {
+            Organization organization => organization.Identifier,
+            Practitioner practitioner => practitioner.Identifier,
+            PractitionerRole role => role.Identifier,
+            _ => [],
+        };
+        return (identifiers.FirstOrDefault(i => i.System == NpiSystem) ?? identifiers.FirstOrDefault())?.Value;
+    }
+
     private static bool IsMemberIdentifier(Identifier identifier) =>
         identifier.Type?.Coding.Any(c => c.System == IdentifierTypeSystem && c.Code == "MB") == true;
 
@@ -244,11 +259,13 @@ public static class PasWire
     }
 
     private static T Resolve<T>(Bundle bundle, ResourceReference reference) where T : Resource =>
+        TryResolve<T>(bundle, reference) ?? throw new RequestRejected($"{reference.Reference} is not in the Bundle");
+
+    private static T? TryResolve<T>(Bundle bundle, ResourceReference reference) where T : Resource =>
         bundle.Entry
             .Where(e => e.Resource is T)
             .FirstOrDefault(e => e.FullUrl == reference.Reference
                                  || e.FullUrl?.EndsWith("/" + reference.Reference, StringComparison.Ordinal) == true
                                  || $"{e.Resource.TypeName}/{e.Resource.Id}" == reference.Reference)
-            ?.Resource as T
-        ?? throw new RequestRejected($"{reference.Reference} is not in the Bundle");
+            ?.Resource as T;
 }

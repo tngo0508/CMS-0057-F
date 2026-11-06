@@ -53,6 +53,34 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                     b.ToTable("Members");
                 });
 
+            modelBuilder.Entity("Cms0057.PriorAuthorization.Notifications.DecisionSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("EventsSent")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OrganizationIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationIdentifier");
+
+                    b.ToTable("Subscriptions");
+                });
+
             modelBuilder.Entity("Cms0057.PriorAuthorization.PriorAuthorizationRequest", b =>
                 {
                     b.Property<Guid>("Id")
@@ -77,6 +105,10 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
 
                     b.Property<string>("MemberIdentifier")
                         .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ProviderIdentifier")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 

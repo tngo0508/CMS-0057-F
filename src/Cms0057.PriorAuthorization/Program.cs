@@ -1,6 +1,7 @@
 using Cms0057.PriorAuthorization;
 using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
+using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,6 +14,8 @@ builder.Services.Configure<PriorAuthorizationOptions>(builder.Configuration.GetS
 builder.Services.AddSingleton<IAuthorizationRules, ResidentialTreatmentRules>();
 builder.Services.AddScoped<PriorAuthorizationRequests>();
 builder.Services.AddSingleton<CoverageRequirements>();
+builder.Services.AddScoped<PasSubscriptions>();
+builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
 
 var app = builder.Build();
 
@@ -31,7 +34,7 @@ app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRe
         using var reader = new StreamReader(http.Body);
         var submission = PasWire.ReadSubmission(await reader.ReadToEndAsync());
         var request = await requests.Receive(submission);
-        return Fhir(PasWire.Response(request, $"{http.Scheme}://{http.Host}/fhir"));
+        return Fhir(PasWire.Response(request, ServerBase(http)));
     }
     catch (RequestRejected rejected)
     {
@@ -46,11 +49,26 @@ app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationR
         using var reader = new StreamReader(http.Body);
         var inquiry = PasWire.ReadInquiry(await reader.ReadToEndAsync());
         var found = await requests.Find(inquiry);
-        return Fhir(PasWire.InquiryResponse(found, $"{http.Scheme}://{http.Host}/fhir"));
+        return Fhir(PasWire.InquiryResponse(found, ServerBase(http)));
     }
     catch (RequestRejected rejected)
     {
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
+    }
+});
+
+// A provider system asks to be told when its requests are decided (PAS subscription).
+app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
+{
+    try
+    {
+        using var reader = new StreamReader(http.Body);
+        var accepted = await subscriptions.Subscribe(await reader.ReadToEndAsync());
+        return Fhir(accepted, StatusCodes.Status201Created);
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status422UnprocessableEntity);
     }
 });
 
@@ -70,12 +88,14 @@ app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpReques
     }
 });
 
-// What a Reviewer uses. Internal, not FHIR.
-app.MapPost("/reviewer/requests/{id:guid}/approve", (Guid id, Approval approval, PriorAuthorizationRequests requests) =>
-    Decision(() => requests.Approve(id, approval.AuthorizationEnds)));
+// What a Reviewer uses. Internal, not FHIR. Each decision is sent on to the subscribed provider system.
+app.MapPost("/reviewer/requests/{id:guid}/approve",
+    (Guid id, Approval approval, HttpRequest http, PriorAuthorizationRequests requests, PasSubscriptions subscriptions) =>
+        Decision(() => requests.Approve(id, approval.AuthorizationEnds), subscriptions, ServerBase(http)));
 
-app.MapPost("/reviewer/requests/{id:guid}/deny", (Guid id, Denial denial, PriorAuthorizationRequests requests) =>
-    Decision(() => requests.Deny(id, denial.DenialReason)));
+app.MapPost("/reviewer/requests/{id:guid}/deny",
+    (Guid id, Denial denial, HttpRequest http, PriorAuthorizationRequests requests, PasSubscriptions subscriptions) =>
+        Decision(() => requests.Deny(id, denial.DenialReason), subscriptions, ServerBase(http)));
 
 app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests requests, TimeProvider clock) =>
 {
@@ -96,11 +116,19 @@ app.Run();
 static IResult Fhir(Hl7.Fhir.Model.Resource resource, int status = StatusCodes.Status200OK) =>
     Results.Text(PasWire.Write(resource), "application/fhir+json", statusCode: status);
 
-static async Task<IResult> Decision(Func<Task<bool>> decide)
+static string ServerBase(HttpRequest http) => $"{http.Scheme}://{http.Host}/fhir";
+
+static async Task<IResult> Decision(
+    Func<Task<PriorAuthorizationRequest?>> decide,
+    PasSubscriptions subscriptions,
+    string serverBase)
 {
     try
     {
-        return await decide() ? Results.NoContent() : Results.NotFound();
+        var decided = await decide();
+        if (decided is null) return Results.NotFound();
+        await subscriptions.NotifyDecided(decided, serverBase);
+        return Results.NoContent();
     }
     catch (DecisionRefused refused)
     {

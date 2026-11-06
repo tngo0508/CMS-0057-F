@@ -24,6 +24,10 @@ public sealed class PriorAuthorizationRequest
     public string SubmissionIdentifier { get; private set; } = "";
 
     public string MemberIdentifier { get; private set; } = "";
+
+    /// <summary>The identifier (usually the NPI) of the organization that sent the request, when it gave one.</summary>
+    public string? ProviderIdentifier { get; private set; }
+
     public string ServiceCode { get; private set; } = "";
     public DateTimeOffset ReceivedAt { get; private set; }
 
@@ -50,6 +54,7 @@ public sealed class PriorAuthorizationRequest
             Id = Guid.NewGuid(),
             SubmissionIdentifier = submission.SubmissionIdentifier,
             MemberIdentifier = submission.MemberIdentifier,
+            ProviderIdentifier = submission.ProviderIdentifier,
             ServiceCode = submission.Service.Code,
             ReceivedAt = now,
             RequestBundle = submission.RequestBundle,
@@ -103,6 +108,7 @@ public sealed class RequestRejected(string reason) : Exception(reason);
 public sealed record Submission(
     string SubmissionIdentifier,
     string MemberIdentifier,
+    string? ProviderIdentifier,
     RequestedService Service,
     string RequestBundle);
 

@@ -130,6 +130,33 @@ Content-Type: application/fhir+json
   ]
 }
 
+### 1b. (Optional) Provider system subscribes to decisions for its organization (NPI 8189991234).
+# Expect: 201 with the Subscription echoed back as "active". After step 3a or 3b the service POSTs a
+# history Bundle (subscription status + the PAS response) to the endpoint below; point it at a listener
+# such as https://webhook.site to see it arrive. Without the org-identifier filter the answer is 422.
+POST {{baseUrl}}/fhir/Subscription
+Content-Type: application/fhir+json
+
+{
+  "resourceType": "Subscription",
+  "status": "requested",
+  "reason": "Monitor PAS authorization notifications via REST hook",
+  "criteria": "http://hl7.org/fhir/us/davinci-pas/SubscriptionTopic/PASSubscriptionTopic",
+  "_criteria": {
+    "extension": [
+      {
+        "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-filter-criteria",
+        "valueString": "org-identifier=8189991234"
+      }
+    ]
+  },
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "http://localhost:9999/api/pas/notification",
+    "payload": "application/fhir+json"
+  }
+}
+
 ### 2. Reviewer lists the Pended requests.
 # Expect: the request from step 1, with decisionDeadline 24 hours after receivedAt and overdue false.
 GET {{baseUrl}}/reviewer/pended-requests

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using Cms0057.PriorAuthorization.Data;
+using Cms0057.PriorAuthorization.Notifications;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -24,6 +25,9 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
 
     public FakeTimeProvider Clock { get; } = new(Start);
 
+    /// <summary>Every notification the service sends to provider systems lands here.</summary>
+    public NotificationRecorder Notifications { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -32,8 +36,13 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Clock);
+            services.AddHttpClient(PasSubscriptions.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => Notifications);
         });
     }
+
+    /// <summary>A provider system asks to be notified of decisions (PAS Subscription).</summary>
+    public async Task<PasResponse> Subscribe(string subscription) => await Post("/fhir/Subscription", subscription);
 
     public async Task<PasResponse> Submit(string requestBundle) => await Post("/fhir/Claim/$submit", requestBundle);
 

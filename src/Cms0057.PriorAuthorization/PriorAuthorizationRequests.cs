@@ -59,26 +59,26 @@ public sealed class PriorAuthorizationRequests(
                 || (r.AuthorizationNumber is not null && inquiry.Numbers.Contains(r.AuthorizationNumber)))];
     }
 
-    /// <returns>False when there is no such request.</returns>
+    /// <returns>The approved request, or null when there is no such request.</returns>
     /// <exception cref="DecisionRefused">No end date was given.</exception>
     /// <exception cref="AlreadyAnswered">The request is not Pended.</exception>
-    public Task<bool> Approve(Guid id, DateOnly? authorizationEnds) =>
+    public Task<PriorAuthorizationRequest?> Approve(Guid id, DateOnly? authorizationEnds) =>
         Decide(id, request => request.Approve(authorizationEnds, clock.GetUtcNow()));
 
-    /// <returns>False when there is no such request.</returns>
+    /// <returns>The denied request, or null when there is no such request.</returns>
     /// <exception cref="DecisionRefused">No Denial Reason was given.</exception>
     /// <exception cref="AlreadyAnswered">The request is not Pended.</exception>
-    public Task<bool> Deny(Guid id, string? denialReason) =>
+    public Task<PriorAuthorizationRequest?> Deny(Guid id, string? denialReason) =>
         Decide(id, request => request.Deny(denialReason, clock.GetUtcNow()));
 
-    private async Task<bool> Decide(Guid id, Action<PriorAuthorizationRequest> decision)
+    private async Task<PriorAuthorizationRequest?> Decide(Guid id, Action<PriorAuthorizationRequest> decision)
     {
         var request = await db.Requests.FindAsync(id);
-        if (request is null) return false;
+        if (request is null) return null;
 
         decision(request);
         await db.SaveChangesAsync();
-        return true;
+        return request;
     }
 
     /// <summary>Pended requests, the one with the nearest Decision Deadline first.</summary>

@@ -1,3 +1,4 @@
+using Cms0057.PriorAuthorization.Notifications;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cms0057.PriorAuthorization.Data;
@@ -7,6 +8,7 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
 {
     public DbSet<PriorAuthorizationRequest> Requests => Set<PriorAuthorizationRequest>();
     public DbSet<Member> Members => Set<Member>();
+    public DbSet<DecisionSubscription> Subscriptions => Set<DecisionSubscription>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -17,6 +19,7 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             request.Property(r => r.SubmissionIdentifier).HasMaxLength(400);
             request.HasIndex(r => r.SubmissionIdentifier).IsUnique();
             request.Property(r => r.MemberIdentifier).HasMaxLength(100);
+            request.Property(r => r.ProviderIdentifier).HasMaxLength(100);
             request.Property(r => r.ServiceCode).HasMaxLength(50);
             request.Property(r => r.State).HasConversion<string>().HasMaxLength(20);
             request.Property(r => r.AuthorizationNumber).HasMaxLength(50);
@@ -31,6 +34,15 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             member.HasIndex(m => m.Identifier).IsUnique();
             member.Property(m => m.FamilyName).HasMaxLength(200);
             member.Property(m => m.GivenName).HasMaxLength(200);
+        });
+
+        model.Entity<DecisionSubscription>(subscription =>
+        {
+            subscription.HasKey(s => s.Id);
+            subscription.Property(s => s.Id).ValueGeneratedNever();
+            subscription.Property(s => s.OrganizationIdentifier).HasMaxLength(100);
+            subscription.HasIndex(s => s.OrganizationIdentifier);
+            subscription.Property(s => s.Endpoint).HasMaxLength(2000);
         });
     }
 }
