@@ -20,6 +20,7 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             request.HasIndex(r => r.SubmissionIdentifier).IsUnique();
             request.Property(r => r.MemberIdentifier).HasMaxLength(100);
             request.Property(r => r.ProviderIdentifier).HasMaxLength(100);
+            request.Property(r => r.Expedited).HasDefaultValue(false);
             request.Property(r => r.State).HasConversion<string>().HasMaxLength(20);
             request.Property(r => r.AuthorizationNumber).HasMaxLength(50);
             request.Property(r => r.DenialReason).HasMaxLength(4000);

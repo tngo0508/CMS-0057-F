@@ -12,7 +12,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddDbContext<PriorAuthorizationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("PriorAuthorization")));
 builder.Services.Configure<PriorAuthorizationOptions>(builder.Configuration.GetSection("PriorAuthorization"));
-builder.Services.AddSingleton<IAuthorizationRules, ResidentialTreatmentRules>();
+builder.Services.AddSingleton<IAuthorizationRules, ConfiguredAuthorizationRules>();
 builder.Services.AddScoped<PriorAuthorizationRequests>();
 builder.Services.AddSingleton<CoverageRequirements>();
 builder.Services.AddScoped<PasSubscriptions>();
@@ -107,6 +107,7 @@ app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests reques
         r.Id,
         r.MemberIdentifier,
         ServiceCodes = r.ServiceCodesUnderReview,
+        r.Expedited,
         r.ReceivedAt,
         r.DecisionDeadline,
         Overdue = r.IsOverdue(now),

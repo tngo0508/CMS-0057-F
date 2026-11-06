@@ -146,6 +146,7 @@ public sealed record PendedRequest(
     string Id,
     string MemberIdentifier,
     string[] ServiceCodes,
+    bool Expedited,
     DateTimeOffset ReceivedAt,
     DateTimeOffset DecisionDeadline,
     bool Overdue);

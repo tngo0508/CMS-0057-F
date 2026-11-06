@@ -48,8 +48,10 @@ VS Code (REST Client) and send the requests top to bottom. A sample request Bund
 [`samples/`](samples/residential-request.json).
 
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
-connection string and the billing codes that count as residential treatment (`H0019` with modifier `U1`, `U2`
-or `U3`, from the DMC-ODS billing manual).
+connection string, the rules (`Requirements`: which billing codes need prior authorization and how long the plan
+has to decide, standard and expedited) and the plan's licensed Denial Reason codes. The residential codes (`H0019`
+with `U1`/`U2`/`U3`) come from the DMC-ODS billing manual; the mental health codes under BHIN 26-030 are still to be
+confirmed against the 2026 manual.
 
 ## Tests
 
@@ -63,13 +65,15 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 
 ## What is and is not built
 
-Built: PAS submit, inquire and subscription notifications; CRD order-sign; the residential-treatment rule with its
-24-hour deadline; several items per request; approval and denial with the rule's required content; overdue tracking.
+Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
+expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
+health services); several items per request; approval and denial with the rule's required content, including coded
+Denial Reasons; overdue tracking; the public metrics report.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, SMART on FHIR
-authentication, a Reviewer screen, FHIR profile validation, request updates and cancellations, the expedited /
-standard timelines for mental health plans, the public metrics report, and the rule's other three APIs (Patient
-Access, Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work items.
+authentication, a Reviewer screen, FHIR profile validation, request updates and cancellations, and the rule's other
+three APIs (Patient Access, Provider Access, Payer-to-Payer). Several issues are questions for the agency rather
+than work items.
 
 ## Sources and attribution
 

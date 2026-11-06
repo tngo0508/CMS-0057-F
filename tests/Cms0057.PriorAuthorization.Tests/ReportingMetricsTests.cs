@@ -69,7 +69,7 @@ public sealed class ReportingMetricsTests : IDisposable
     {
         var report = await _api.MetricsReport(2026);
 
-        Assert.Equal(["H0019 U1", "H0019 U2", "H0019 U3"], report.ServicesRequiringPriorAuthorization);
+        Assert.Equal(["H0019 U1", "H0019 U2", "H0019 U3", "H0040", "H2012", "H2019", "S5145"], report.ServicesRequiringPriorAuthorization);
     }
 
     private async Task<string> Pended() => (await _api.Submit(RequestBundles.ResidentialTreatment())).ClaimResponseId;

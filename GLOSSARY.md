@@ -55,8 +55,14 @@ _Avoid_: Approver, adjudicator, utilization manager
 
 **Decision Deadline**:
 The moment by which the Behavioral Health Plan must have made its Prior Authorization Decision, fixed when the request
-is received and set by the rule for the service requested.
+is received and set by the rule for the service requested. Where several rules apply, the earliest deadline stands.
 _Avoid_: Due date, turnaround time, SLA
+
+**Expedited**:
+A Prior Authorization Request the provider has asked to have decided on the shorter time frame because the standard one
+could seriously jeopardize the Member's life, health or ability to regain maximum function. The provider's say-so at
+submission; the plan does not second-guess it here.
+_Avoid_: Urgent, stat (except as the FHIR priority code), rush
 
 **Overdue**:
 The state of a Prior Authorization Request whose Decision Deadline has passed without a Prior Authorization Decision.

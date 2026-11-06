@@ -61,10 +61,7 @@ public sealed class PriorAuthorizationMetrics(PriorAuthorizationDbContext db, IO
     }
 
     private IReadOnlyList<string> Services() =>
-    [
-        .. options.Value.ResidentialServices.SelectMany(s =>
-            s.Modifiers.Count == 0 ? [s.Code] : s.Modifiers.Select(m => $"{s.Code} {m}")),
-    ];
+        [.. options.Value.Requirements.SelectMany(r => r.ServiceNames).Distinct().Order()];
 
     private static double? Percent(int part, int whole) =>
         whole == 0 ? null : Math.Round(100.0 * part / whole, 1);

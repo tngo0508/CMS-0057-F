@@ -13,20 +13,28 @@ public static class RequestBundles
     public static string ResidentialTreatment(
         string memberIdentifier = KnownMember,
         string? bundleIdentifier = null,
-        string claimUse = "preauthorization") =>
-        ForService("H0019", "U1", memberIdentifier, bundleIdentifier, claimUse);
+        string claimUse = "preauthorization",
+        string priority = "normal") =>
+        ForItems([Residential], memberIdentifier, bundleIdentifier, claimUse, priority);
 
     /// <summary>Outpatient individual counseling: H0004 with the outpatient modifier U7.</summary>
     public static string OutpatientCounseling(string modifier = "U7") =>
-        ForService("H0004", modifier, KnownMember, null, "preauthorization");
+        ForItems([("H0004", modifier)], KnownMember, null, "preauthorization", "normal");
 
     /// <summary>One request asking for several services at once, each as its own item in the order given.</summary>
     public static string ForServices(params (string Code, string Modifier)[] services) =>
-        ForItems(services, KnownMember, null, "preauthorization");
+        ForItems(services, KnownMember, null, "preauthorization", "normal");
+
+    /// <summary>A request for one service, standard ("normal") or expedited ("stat").</summary>
+    public static string For((string Code, string Modifier) service, string priority = "normal") =>
+        ForItems([service], KnownMember, null, "preauthorization", priority);
 
     public static readonly (string Code, string Modifier) Residential = ("H0019", "U1");
     public static readonly (string Code, string Modifier) Counseling = ("H0004", "U7");
     public static readonly (string Code, string Modifier) GroupCounseling = ("H0005", "U7");
+
+    /// <summary>Therapeutic Behavioral Services, one of the specialty mental health services under DHCS BHIN 26-030.</summary>
+    public static readonly (string Code, string Modifier) TherapeuticBehavioralServices = ("H2019", "HA");
 
     /// <summary>The NPI of the treatment provider that sends every request in these tests.</summary>
     public const string TreatmentProviderNpi = "8189991234";
@@ -153,19 +161,12 @@ public static class RequestBundles
         }
         """;
 
-    private static string ForService(
-        string serviceCode,
-        string modifier,
-        string memberIdentifier,
-        string? bundleIdentifier,
-        string claimUse) =>
-        ForItems([(serviceCode, modifier)], memberIdentifier, bundleIdentifier, claimUse);
-
     private static string ForItems(
         IReadOnlyList<(string Code, string Modifier)> services,
         string memberIdentifier,
         string? bundleIdentifier,
-        string claimUse)
+        string claimUse,
+        string priority)
     {
         bundleIdentifier ??= Guid.NewGuid().ToString("N");
         var items = string.Join(",\n", services.Select((service, index) => $$"""
@@ -208,7 +209,7 @@ public static class RequestBundles
                 "created": "2026-11-06T09:59:00-08:00",
                 "insurer": { "reference": "Organization/BehavioralHealthPlan" },
                 "provider": { "reference": "Organization/TreatmentProvider" },
-                "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
+                "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "{{priority}}" }] },
                 "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
                 "item": [
         {{items}}

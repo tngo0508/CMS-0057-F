@@ -111,6 +111,11 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<bool>("Expedited")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("MemberIdentifier")
                         .IsRequired()
                         .HasMaxLength(100)

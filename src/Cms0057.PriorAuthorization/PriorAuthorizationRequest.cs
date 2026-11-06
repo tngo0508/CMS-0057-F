@@ -35,6 +35,9 @@ public sealed class PriorAuthorizationRequest
     /// <summary>The billing codes of the items a Reviewer has to decide on.</summary>
     public IEnumerable<string> ServiceCodesUnderReview => _items.Where(i => i.RequiresReview).Select(i => i.ServiceCode);
 
+    /// <summary>True when the provider asked for an expedited decision (Claim.priority "stat").</summary>
+    public bool Expedited { get; private set; }
+
     public DateTimeOffset ReceivedAt { get; private set; }
 
     /// <summary>Fixed at receipt. Null when authorization is Not Required.</summary>
@@ -60,13 +63,16 @@ public sealed class PriorAuthorizationRequest
 
     /// <summary>
     /// Records a submission and gives it its immediate answer. Each requested service is judged by its own rule;
-    /// the request is Pended when any of them needs review, with the tightest Decision Deadline among them, and
-    /// Not Required when none does.
+    /// the request is Pended when any of them needs review, with the earliest Decision Deadline among them (the
+    /// expedited one when the provider asked for an expedited decision), and Not Required when none does.
     /// </summary>
     public static PriorAuthorizationRequest Receive(Submission submission, IAuthorizationRules rules, DateTimeOffset now)
     {
         var judged = submission.Services.Select(service => (Service: service, Rule: rules.For(service))).ToList();
-        var reviews = judged.Select(j => j.Rule).OfType<AuthorizationRule.RequiresReview>().ToList();
+        var deadlines = judged.Select(j => j.Rule)
+            .OfType<AuthorizationRule.RequiresReview>()
+            .Select(r => r.Timeframe.DeadlineFrom(now, submission.Expedited))
+            .ToList();
 
         var request = new PriorAuthorizationRequest
         {
@@ -74,10 +80,11 @@ public sealed class PriorAuthorizationRequest
             SubmissionIdentifier = submission.SubmissionIdentifier,
             MemberIdentifier = submission.MemberIdentifier,
             ProviderIdentifier = submission.ProviderIdentifier,
+            Expedited = submission.Expedited,
             ReceivedAt = now,
             RequestBundle = submission.RequestBundle,
-            State = reviews.Count > 0 ? RequestState.Pended : RequestState.NotRequired,
-            DecisionDeadline = reviews.Count > 0 ? now + reviews.Min(r => r.DecideWithin) : null,
+            State = deadlines.Count > 0 ? RequestState.Pended : RequestState.NotRequired,
+            DecisionDeadline = deadlines.Count > 0 ? deadlines.Min() : null,
         };
         request._items.AddRange(judged.Select(j =>
             RequestedItem.Of(j.Service, requiresReview: j.Rule is AuthorizationRule.RequiresReview)));
@@ -171,6 +178,7 @@ public sealed record Submission(
     string SubmissionIdentifier,
     string MemberIdentifier,
     string? ProviderIdentifier,
+    bool Expedited,
     IReadOnlyList<RequestedService> Services,
     string RequestBundle);
 

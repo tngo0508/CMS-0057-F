@@ -57,6 +57,8 @@ public static class PasWire
             SubmissionIdentifier: $"{bundle.Identifier.System}|{bundle.Identifier.Value}",
             MemberIdentifier: MemberIdentifier(member),
             ProviderIdentifier: ProviderIdentifier(bundle, claim.Provider),
+            // PAS marks an expedited request with the "stat" process priority.
+            Expedited: claim.Priority?.Coding.Any(c => c.Code == "stat") == true,
             Services:
             [
                 .. claim.Item.Select((item, index) => new RequestedService(
