@@ -21,6 +21,7 @@ An EHR can ask, as a clinician signs an order, whether prior authorization is ne
 
 | Endpoint | Guide | Purpose |
 | --- | --- | --- |
+| `GET /.well-known/smart-configuration`, `POST /auth/token` | SMART App Launch 1.0 Backend Services | Where and how a provider system obtains an access token |
 | `POST /fhir/Claim/$submit` | PAS 2.2.1 | Submit a request; answered with a PAS response Bundle |
 | `POST /fhir/Claim/$inquire` | PAS 2.2.1 | Ask about the requesting provider's requests for a Member |
 | `POST /fhir/Subscription` | PAS 2.2.1 / Subscriptions Backport | Be notified when a request is decided |
@@ -54,10 +55,45 @@ single static page ([`wwwroot/reviewer.html`](src/Cms0057.PriorAuthorization/www
 sign-in, as the rest of the proof of concept has none.
 
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
-connection string, the rules (`Requirements`: which billing codes need prior authorization and how long the plan
-has to decide, standard and expedited) and the plan's licensed Denial Reason codes. The residential codes (`H0019`
+connection string, the registered client systems (`Authentication`, below), the rules (`Requirements`: which
+billing codes need prior authorization and how long the plan has to decide, standard and expedited) and the plan's
+licensed Denial Reason codes. The residential codes (`H0019`
 with `U1`/`U2`/`U3`) come from the DMC-ODS billing manual; the mental health codes under BHIN 26-030 are still to be
 confirmed against the 2026 manual.
+
+## How a provider system authenticates
+
+The Final Rule requires SMART App Launch 1.0 for the payer APIs, and this service takes the Backend Services
+profile: a provider system (or an EHR calling CRD) authenticates as a *system*, with a key pair rather than a
+password. Da Vinci's `br-payer` sample runs without authentication; here it is on unless
+`Authentication:Enabled` is set to `false` for a local demo.
+
+1. **Registration.** The provider system generates an RSA or EC key pair and gives the plan its client id, the
+   scopes it needs and the *public* key, as a JWK Set either inline or at a URL it publishes. The plan enters it
+   under `Authentication:Clients` in `appsettings.json`. A sample client, `sample-provider-system`, is registered
+   there; its private key is published in
+   [`samples/sample-provider-system.private.jwk.json`](samples/sample-provider-system.private.jwk.json) so the
+   demo can run. It is synthetic and protects nothing.
+2. **Discovery.** `GET /.well-known/smart-configuration` says where the token endpoint is, that the client
+   authenticates with `private_key_jwt` signed `RS384` or `ES384`, and which `system/` scopes are offered.
+3. **Client assertion.** The system signs a short JWT with its private key: `iss` and `sub` are its client id,
+   `aud` is the token endpoint URL, `exp` is at most five minutes ahead and `jti` is unique. The service refuses
+   an assertion it has seen before. [`samples/New-ClientAssertion.ps1`](samples/New-ClientAssertion.ps1) signs
+   one for the sample client.
+4. **Token.** `POST /auth/token` with `grant_type=client_credentials`, the assertion as `client_assertion`
+   (type `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`) and the `scope` wanted. The answer is a bearer
+   token good for five minutes, carrying the scopes granted. The system then sends `Authorization: Bearer ...` on
+   every call to `/fhir/*` and `/cds-services/*`. A missing or expired token is answered 401, a token without the
+   scope the operation needs 403, both with an OperationOutcome on `/fhir/*`.
+
+Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, a Decision Subscription
+`system/Subscription.write`; CRD needs only a token from a registered client. The metrics report under `/reports`
+is public, as the rule intends. The Reviewer endpoints under `/reviewer` are for the plan's own staff and are not
+covered by SMART Backend Services; their protection is a separate concern, tracked in the issues. Access tokens are
+signed with a key generated when the service starts, so they do not survive a restart.
+
+[`PriorAuthorization.http`](src/Cms0057.PriorAuthorization/PriorAuthorization.http) walks through it: step A
+trades a pasted assertion for a token and the later steps carry that token.
 
 ## Tests
 
@@ -74,17 +110,27 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
 expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
 health services); several items per request; updates, cancellations and renewals; approval and denial with the
+<<<<<<< HEAD
 rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the public metrics
 report.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, SMART on FHIR
 authentication, FHIR profile validation, and the rule's other three APIs (Patient Access, Provider Access,
 Payer-to-Payer). Several issues are questions for the agency rather than work items.
+=======
+rule's required content, including coded Denial Reasons; overdue tracking; the public metrics report; SMART
+Backend Services authentication for the provider-facing endpoints.
+
+Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, a Reviewer
+screen and the Reviewer endpoints' own authentication, FHIR profile validation, and the rule's other three APIs (Patient Access,
+Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work items.
+>>>>>>> claude/exciting-kapitsa-096383
 
 ## Sources and attribution
 
 - CMS-0057-F final rule and fact sheet; DHCS BHIN 24-001, 26-008 and 26-030.
-- HL7 Da Vinci PAS 2.2.1, CRD 2.2.1, DTR 2.2.0; FHIR R4.0.1; Subscriptions Backport.
+- HL7 Da Vinci PAS 2.2.1, CRD 2.2.1, DTR 2.2.0; FHIR R4.0.1; Subscriptions Backport; SMART App Launch 1.0.0
+  Backend Services.
 - The request and inquiry Bundles used in the tests and samples are adapted from the examples in Da Vinci's
   [`br-payer`](https://github.com/HL7-DaVinci/br-payer) reference implementation (Apache License 2.0), cut down and
   re-coded for behavioral health services. The FHIR model and serialisation come from the

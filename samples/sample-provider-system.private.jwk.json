@@ -1,0 +1,16 @@
+{
+  "_comment": "SYNTHETIC. The private key of the sample client 'sample-provider-system' registered in appsettings.json, published here so the demo in PriorAuthorization.http can sign a client assertion. It protects nothing; never reuse it. A real provider system keeps its private key to itself and gives the plan only the public half.",
+  "client_id": "sample-provider-system",
+  "kty": "RSA",
+  "kid": "sample-provider-system-2026",
+  "alg": "RS384",
+  "use": "sig",
+  "n": "uwwU0OOYTgwJIkxt3vmqZ6mwuxr9I4T_Vi9m8MMy6x0EtnE3kiDfSwK5cBIHx0E4oc-ZQZhqU9C1tgoQPA0SJcmHwTqbxvsgiqoN0gPA-bEYSyIoYVcmQTerdDtk_TAN-giysWNGRZnpO3CM6PHnrobRk5elX6wjXZHZAoSji_PlV_nGblI6skzSrFUmTLNZKZrqTrTOJTrxynnJMhQlPHDPFXM2qssmwJgifROvi22un5hDu6fzhE-aESL86ZCuW8Ca0RnzEp1ZnrPZlJAGdVTJILctzRLzvCyFslkLoEIXcIwl00SepEz4GPSacoNLtZbW-oPBc8r2F-fX1JLpEQ",
+  "e": "AQAB",
+  "d": "FJeU5xZXWyhKDSOa6PRVhUoSMdcbzUBEGAnp7FGhFm9AaJF4S7cgvhJTtfnWL2KHyJChT65m7klI5_ydou7Rc6WHM4evRK26_GkSUm-lXBfaE9Nz3JuKk518W7R6PsF-mGtCuPKz9s-l9KxEZxTSq80d34DPbQP3dMKswHE3zB1iWohzgmHXoLYSCwTw6UnG_uETqz8KdbSGkErfhcvUXbocVkr4jwd3Oc51SWH7I4tj8znI3B4b2TxKX62380v7F2dDpFjj5NIxiFMjjixtC0_YEYg6XS2RlowPOu4Fbxvc3cJWM3bHdu9txJ1Ul-JpEsfXOHvGyWyfUAlgQqYsDQ",
+  "p": "8FfUCZ26NPtLwbOXltnDSvWqizonRsj_m4FzYA0PeMI-3jn57oUIru12IiQqbiXrZFx1XnwyqhxZUu2bZH7Y0sw0G0j-I8yUZ7Fs80koZr7LAjcz7wajso6PBI9F8bQh2wo37OL6ZZXxxeuvVpogxGkBFCWQc7oJfLh_Xmh7mDs",
+  "q": "xztxs8XdrCO7CMWu1oKz3lmwV9SgD4Mn2RzMpza2Cmm29Y_jDs8l6f63KbBmPR69YouZZrA4S4XVJuMXfJAwciqpcxdma0LWp65PB3VzgKPzJNqru8M1STFjiQy_bDMdOIuvF6Dh-vktb2qmejIL_YRmkgh4R3lFZ3dwsgzOuyM",
+  "dp": "2SXBQd7r-iqBy8TDVVvygqtrJten3OCFcK6I22Nxcx2tR4MCOWqg6ctKTJZ4b4R7JPYUZQW5kNCEM9TR7P5eUDaHbY-JbjbMbtNzKGwUwJ_pM1tE5NUO2ajLtsbr3vFtFUYqOTDqIxZSlwvWI1yl9k8Y1mcKGEUhhTn8egPUhzk",
+  "dq": "tH5hIxnWGraAIpFdNQ9SPtWIUfnaTFNpDWPu8Go7f7GIRG3nqan3Ukclzwn1hdfMgXOxNPve9GS517ISvBGxIi0OOKtxaSkzaNQc2sgILPnbNH866C8Qnk-1OhsnbLHd_jVmGgTx1bpa9D5ttfSTMkj518D-ntn6C6OEoHnD7Hs",
+  "qi": "Hl4qrKDAh-4KP5TebV0IVZyn7AI4alta68CAeojMV5JFue5WuoVMrLc4SvEGBIyfqcxrt914_zvrACbtjvOEo6QXaKj6R7ZzfSlssGyHMRa3AqUmCxHjrA7DV0zMOABoqkuNjsDHLarVOKWETDR1qYKpP6BfGtLVkya1SNxFsDg"
+}

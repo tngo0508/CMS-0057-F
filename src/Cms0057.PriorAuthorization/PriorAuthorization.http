@@ -2,12 +2,35 @@
 
 # Run these top to bottom while the service is running (F5).
 # In Visual Studio, click "Send request" above each one; the response opens on the right.
+#
+# The Prior Authorization API takes a SMART Backend Services token. Sign a client assertion with the sample
+# client's (synthetic, published) key and paste it below, then send step A; every later request carries the token
+# it returns. An assertion is good once and for a few minutes, so run the script again when step A says
+# "already been presented" or the token expires (five minutes).
+#
+#     ./samples/New-ClientAssertion.ps1
+#
+# To try the service without tokens instead, set Authentication:Enabled to false in appsettings.json.
+@clientAssertion = PASTE-THE-SCRIPT-OUTPUT-HERE
+
+### A. The provider system trades its signed client assertion for an access token.
+# Expect: 200 with access_token, token_type "bearer", expires_in 300 and the scopes granted.
+# A bad signature, an unknown client or a replayed assertion give 400 with error "invalid_client".
+# @name token
+POST {{baseUrl}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/Subscription.write
+
+### B. What the service advertises about obtaining a token (no token needed).
+GET {{baseUrl}}/.well-known/smart-configuration
 
 ### 0. CRD: the EHR asks, as the clinician signs the order, whether prior authorization is needed.
 # Expect: 200 with one systemAction of type "update" carrying the ServiceRequest back with a
 # coverage-information extension whose "pa-needed" is "auth-needed" (change H0019 to H0004 for "no-auth").
 POST {{baseUrl}}/cds-services/order-sign-crd
 Content-Type: application/json
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 {
   "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
@@ -54,12 +77,14 @@ Content-Type: application/json
 }
 
 ### 1. Provider submits a residential treatment request (H0019 + U1).
+# Without the Authorization header the answer is 401 with an OperationOutcome.
 # Expect: 200, and in the ClaimResponse item a review action code of "A4" (Pended)
 # with an administrationReferenceNumber starting "PEND-".
 # Each send uses a new bundle identifier, so each send creates a new request.
 # @name submit
 POST {{baseUrl}}/fhir/Claim/$submit
 Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 {
   "resourceType": "Bundle",
@@ -136,6 +161,7 @@ Content-Type: application/fhir+json
 # such as https://webhook.site to see it arrive. Without the org-identifier filter the answer is 422.
 POST {{baseUrl}}/fhir/Subscription
 Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 {
   "resourceType": "Subscription",
@@ -191,6 +217,7 @@ Content-Type: application/json
 # A denied one shows "A2" and the reason under processNote. A Pended one shows "A4".
 POST {{baseUrl}}/fhir/Claim/$inquire
 Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 {
   "resourceType": "Bundle",
@@ -263,6 +290,7 @@ GET {{baseUrl}}/reports/prior-authorization-metrics?year=2026
 # the certificationType extension, carrying the new items (withdrawn ones with the infoCancelled modifier extension).
 POST {{baseUrl}}/fhir/Claim/$submit
 Content-Type: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 {
   "resourceType": "Bundle",
