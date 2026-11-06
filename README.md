@@ -25,8 +25,10 @@ An EHR can ask, as a clinician signs an order, whether prior authorization is ne
 | `POST /fhir/Claim/$inquire` | PAS 2.2.1 | Ask about the requesting provider's requests for a Member |
 | `POST /fhir/Subscription` | PAS 2.2.1 / Subscriptions Backport | Be notified when a request is decided |
 | `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order |
+| `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
 | `POST /reviewer/requests/{id}/approve`, `.../deny` | — | The Reviewer's decision |
+| `GET /reviewer/denial-reason-codes` | — | The coded Denial Reasons the plan has configured, for the page's picker |
 
 The wire shapes mirror Da Vinci's `br-payer` reference implementation so that its companion `br-provider` can talk
 to this service; see [docs/adr/0001](docs/adr/0001-target-current-da-vinci-guide-versions.md) for the guide
@@ -45,7 +47,11 @@ dotnet run --project src/Cms0057.PriorAuthorization
 The service listens on `http://localhost:5198`. The quickest tour is
 [`PriorAuthorization.http`](src/Cms0057.PriorAuthorization/PriorAuthorization.http): open it in Visual Studio or
 VS Code (REST Client) and send the requests top to bottom. A sample request Bundle is in
-[`samples/`](samples/residential-request.json).
+[`samples/`](samples/residential-request.json). The Reviewer's page is at
+[http://localhost:5198/reviewer](http://localhost:5198/reviewer): it lists the Pended requests, soonest Decision
+Deadline first and Overdue ones marked, and approves or denies each one through the Reviewer endpoints. It is a
+single static page ([`wwwroot/reviewer.html`](src/Cms0057.PriorAuthorization/wwwroot/reviewer.html)) with no
+sign-in, as the rest of the proof of concept has none.
 
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
 connection string, the rules (`Requirements`: which billing codes need prior authorization and how long the plan
@@ -68,11 +74,12 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
 expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
 health services); several items per request; updates, cancellations and renewals; approval and denial with the
-rule's required content, including coded Denial Reasons; overdue tracking; the public metrics report.
+rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the public metrics
+report.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, SMART on FHIR
-authentication, a Reviewer screen, FHIR profile validation, and the rule's other three APIs (Patient Access,
-Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work items.
+authentication, FHIR profile validation, and the rule's other three APIs (Patient Access, Provider Access,
+Payer-to-Payer). Several issues are questions for the agency rather than work items.
 
 ## Sources and attribution
 
