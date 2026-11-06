@@ -16,7 +16,7 @@ namespace Cms0057.PriorAuthorization.Tests;
 
 /// <summary>
 /// The running service as a provider system and a Reviewer see it: over HTTP only. Each instance has its own
-/// LocalDB database and its own clock, which starts at <see cref="Start"/>.
+/// SQL Server database (created and dropped around the test) and its own clock, which starts at <see cref="Start"/>.
 /// </summary>
 /// <param name="denialReasonCodes">Off only to show the page without a code picker; the plan normally has codes.</param>
 /// <param name="authentication">Off only to show the local-demo switch; every other test runs with it on.</param>
@@ -238,7 +238,11 @@ public sealed class PriorAuthorizationApi(
     private bool _dropped;
 
     private string ConnectionString =>
-        $@"Server=(localdb)\MSSQLLocalDB;Database={_database};Integrated Security=true;TrustServerCertificate=true";
+        $"Server={SqlServer};Database={_database};Integrated Security=true;TrustServerCertificate=true";
+
+    /// <summary>The SQL Server the tests create their databases on; override with CMS0057_TEST_SQLSERVER.</summary>
+    private static string SqlServer =>
+        Environment.GetEnvironmentVariable("CMS0057_TEST_SQLSERVER") is { Length: > 0 } server ? server : "localhost";
 }
 
 /// <summary>The Denial Reason codes the test plan is configured with. Test values, not X12's.</summary>

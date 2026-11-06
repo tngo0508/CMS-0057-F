@@ -51,9 +51,10 @@ once; the folder is ignored by git and a copy of it is all an offline machine ne
 
 ## Running it
 
-Prerequisites: the .NET 10 SDK and SQL Server LocalDB (installed with Visual Studio's data workload, or from the
-SQL Server Express installer). The database is created and migrated on first start, and three synthetic Members
-(`90000001A`, `90000002B`, `90000003C`) are seeded in Development.
+Prerequisites: the .NET 10 SDK and a SQL Server instance (2019 or later; Developer or Express editions are free)
+reachable as `localhost` with Windows authentication — change `ConnectionStrings:PriorAuthorization` in
+`appsettings.json` for another instance or login. The database `Cms0057PriorAuthorization` is created and migrated
+on first start, and three synthetic Members (`90000001A`, `90000002B`, `90000003C`) are seeded in Development.
 
 ```bash
 dotnet run --project src/Cms0057.PriorAuthorization
@@ -116,7 +117,8 @@ trades a pasted assertion for a token and the later steps carry that token.
 dotnet test
 ```
 
-The tests drive the service over HTTP only, each with a throwaway LocalDB database and a fake clock. They are
+The tests drive the service over HTTP only, each with a throwaway database on the same SQL Server (set
+`CMS0057_TEST_SQLSERVER` to use another instance) and a fake clock. They are
 written as the behaviour a provider system or a Reviewer would see, and read best as a specification:
 [tests/](tests/Cms0057.PriorAuthorization.Tests).
 
