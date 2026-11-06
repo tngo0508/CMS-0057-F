@@ -84,7 +84,7 @@ public static class PasWire
             .Select(e => (e.Value as FhirString)?.Value)
             .OfType<string>();
 
-        return new Inquiry(MemberIdentifier(member), [.. numbers]);
+        return new Inquiry(MemberIdentifier(member), ProviderIdentifier(bundle, claim.Provider), [.. numbers]);
     }
 
     /// <summary>

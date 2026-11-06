@@ -69,7 +69,7 @@ public static class RequestBundles
     /// A provider system asking what has become of a Member's requests. The shape follows br-payer's
     /// PASClaimInquiryBundleExample.
     /// </summary>
-    public static string Inquiry(string memberIdentifier = KnownMember) => $$"""
+    public static string Inquiry(string memberIdentifier = KnownMember, string providerNpi = TreatmentProviderNpi) => $$"""
         {
           "resourceType": "Bundle",
           "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-pas-inquiry-request-bundle"] },
@@ -100,7 +100,7 @@ public static class RequestBundles
               "resource": {
                 "resourceType": "Organization",
                 "id": "TreatmentProvider",
-                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "8189991234" }],
+                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "{{providerNpi}}" }],
                 "active": true,
                 "name": "SYNTHETIC RECOVERY HOUSE"
               }

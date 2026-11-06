@@ -44,11 +44,14 @@ public sealed class PriorAuthorizationRequests(
     private Task<PriorAuthorizationRequest?> Submitted(Submission submission) =>
         db.Requests.SingleOrDefaultAsync(r => r.SubmissionIdentifier == submission.SubmissionIdentifier);
 
-    /// <summary>The Member's requests an inquiry asks about, oldest first.</summary>
+    /// <summary>
+    /// The requests an inquiry asks about, oldest first: the Member's, and only those the inquiring organization
+    /// sent itself.
+    /// </summary>
     public async Task<IReadOnlyList<PriorAuthorizationRequest>> Find(Inquiry inquiry)
     {
         var ofMember = await db.Requests
-            .Where(r => r.MemberIdentifier == inquiry.MemberIdentifier)
+            .Where(r => r.MemberIdentifier == inquiry.MemberIdentifier && r.ProviderIdentifier == inquiry.ProviderIdentifier)
             .OrderBy(r => r.ReceivedAt)
             .ToListAsync();
 

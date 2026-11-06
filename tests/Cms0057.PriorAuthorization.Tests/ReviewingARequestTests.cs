@@ -34,6 +34,14 @@ public sealed class ReviewingARequestTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_provider_that_did_not_send_the_request_cannot_see_it()
+    {
+        var answer = await _api.Inquire(RequestBundles.Inquiry(providerNpi: "1112223334"));
+
+        Assert.False(answer.HasAnswer);
+    }
+
+    [Fact]
     public async Task An_approved_request_is_reported_to_the_provider_as_certified()
     {
         await _api.Approve(_pended, authorizationEnds: "2026-12-06");

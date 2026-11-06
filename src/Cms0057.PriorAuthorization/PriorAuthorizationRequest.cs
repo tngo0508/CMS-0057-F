@@ -122,7 +122,7 @@ public sealed record Submission(
 public sealed record RequestedService(string Code, IReadOnlyList<string> Modifiers);
 
 /// <summary>
-/// A provider system asking what has become of a Member's requests, optionally narrowed to the reference or
-/// authorization numbers it was given.
+/// A provider system asking what has become of the requests its organization sent for a Member, optionally narrowed
+/// to the reference or authorization numbers it was given.
 /// </summary>
-public sealed record Inquiry(string MemberIdentifier, IReadOnlyList<string> Numbers);
+public sealed record Inquiry(string MemberIdentifier, string? ProviderIdentifier, IReadOnlyList<string> Numbers);
