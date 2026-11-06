@@ -11,7 +11,7 @@ public sealed class HookResponse(HttpStatusCode status, string body)
     private const string CoverageInformationUrl =
         "http://hl7.org/fhir/us/davinci-crd/StructureDefinition/ext-coverage-information";
 
-    private readonly JsonElement _root = JsonDocument.Parse(body).RootElement.Clone();
+    private readonly JsonElement _root = JsonDocument.Parse(body.Length == 0 ? "{}" : body).RootElement.Clone();
 
     public HttpStatusCode Status { get; } = status;
     public string Body { get; } = body;

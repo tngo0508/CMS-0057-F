@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using Cms0057.PriorAuthorization.Authentication;
 using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Notifications;
 using Microsoft.AspNetCore.Hosting;
@@ -22,11 +23,24 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
     public static readonly DateTimeOffset Start = new(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
 
     private readonly string _database = $"Cms0057_Tests_{Guid.NewGuid():N}";
+    private readonly bool _authentication;
+
+    /// <param name="authentication">Off only to show the local-demo switch; every other test runs with it on.</param>
+    public PriorAuthorizationApi(bool authentication = true) => _authentication = authentication;
 
     public FakeTimeProvider Clock { get; } = new(Start);
 
     /// <summary>Every notification the service sends to provider systems lands here.</summary>
     public NotificationRecorder Notifications { get; } = new();
+
+    /// <summary>The provider system the tests act as, registered with the plan for every PAS scope.</summary>
+    public RegisteredSystem ProviderSystem { get; } =
+        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/Subscription.write");
+
+    /// <summary>The EHR the tests act as for CRD; registered by the URL where it publishes its keys.</summary>
+    public RegisteredSystem Ehr { get; } = new("synthetic-ehr", "system/Claim.read");
+
+    public const string EhrJwksUrl = "https://ehr.example.test/.well-known/jwks.json";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -35,36 +49,118 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.
         builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Code", DenialReasonCodes.NotMedicallyNecessary);
         builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");
+        builder.UseSetting("Authentication:Enabled", _authentication ? "true" : "false");
+        Register(builder, 0, ProviderSystem);
+        builder.UseSetting("Authentication:Clients:1:ClientId", Ehr.ClientId);
+        builder.UseSetting("Authentication:Clients:1:Scopes", Ehr.Scopes);
+        builder.UseSetting("Authentication:Clients:1:JwksUri", EhrJwksUrl);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(Clock);
             services.AddHttpClient(PasSubscriptions.HttpClientName)
                 .ConfigurePrimaryHttpMessageHandler(() => Notifications);
+            services.AddHttpClient(ClientRegister.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => new JwksServer(Ehr));
         });
     }
 
+    /// <summary>Puts a system on the plan's client register, replacing whatever appsettings.json has at that index.</summary>
+    private static void Register(IWebHostBuilder builder, int index, RegisteredSystem system)
+    {
+        builder.UseSetting($"Authentication:Clients:{index}:ClientId", system.ClientId);
+        builder.UseSetting($"Authentication:Clients:{index}:Scopes", system.Scopes);
+        foreach (var (member, value) in system.PublicJwk)
+            builder.UseSetting($"Authentication:Clients:{index}:Jwks:keys:0:{member}", value);
+    }
+
+    /// <summary>
+    /// A system presents its signed client assertion at the token endpoint (SMART Backend Services). The other
+    /// form fields default to what the profile prescribes; a test can send something else to see it refused.
+    /// </summary>
+    public async Task<TokenResponse> RequestToken(
+        string clientAssertion,
+        string scope = "system/Claim.read system/Claim.write system/Subscription.write",
+        string grantType = "client_credentials",
+        string clientAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
+    {
+        using var client = CreateClient();
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = grantType,
+            ["client_assertion_type"] = clientAssertionType,
+            ["client_assertion"] = clientAssertion,
+            ["scope"] = scope,
+        });
+        using var response = await client.PostAsync("/auth/token", form);
+        return new TokenResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Something other than a form is sent to the token endpoint.</summary>
+    public async Task<TokenResponse> RequestTokenWith(string contentType, string body)
+    {
+        using var client = CreateClient();
+        using var content = new StringContent(body, Encoding.UTF8, contentType);
+        using var response = await client.PostAsync("/auth/token", content);
+        return new TokenResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     /// <summary>A provider system asks to be notified of decisions (PAS Subscription).</summary>
-    public async Task<PasResponse> Subscribe(string subscription) => await Post("/fhir/Subscription", subscription);
+    public async Task<PasResponse> Subscribe(string subscription, Caller? caller = null) =>
+        await Post("/fhir/Subscription", subscription, caller ?? Caller.As(ProviderSystem));
 
-    public async Task<PasResponse> Submit(string requestBundle) => await Post("/fhir/Claim/$submit", requestBundle);
+    public async Task<PasResponse> Submit(string requestBundle, Caller? caller = null) =>
+        await Post("/fhir/Claim/$submit", requestBundle, caller ?? Caller.As(ProviderSystem));
 
-    public async Task<PasResponse> Inquire(string inquiryBundle) => await Post("/fhir/Claim/$inquire", inquiryBundle);
+    public async Task<PasResponse> Inquire(string inquiryBundle, Caller? caller = null) =>
+        await Post("/fhir/Claim/$inquire", inquiryBundle, caller ?? Caller.As(ProviderSystem));
+
+    /// <summary>SMART discovery: where and how a provider system obtains an access token.</summary>
+    public async Task<string> SmartConfiguration()
+    {
+        using var client = CreateClient();
+        return await client.GetStringAsync("/.well-known/smart-configuration");
+    }
 
     /// <summary>CDS Hooks discovery: the services this payer offers an EHR.</summary>
     public async Task<string> DiscoverServices()
     {
-        using var client = CreateClient();
+        using var client = ClientFor(Caller.As(Ehr));
         return await client.GetStringAsync("/cds-services");
     }
 
     /// <summary>An EHR calls the order-sign service as a clinician signs an order.</summary>
-    public async Task<HookResponse> OrderSign(string hookRequest)
+    public async Task<HookResponse> OrderSign(string hookRequest, Caller? caller = null)
     {
-        using var client = CreateClient();
+        using var client = ClientFor(caller ?? Caller.As(Ehr));
         using var content = new StringContent(hookRequest, Encoding.UTF8, "application/json");
         using var response = await client.PostAsync("/cds-services/order-sign-crd", content);
         return new HookResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>The public metrics report, fetched without any credentials.</summary>
+    public async Task<HttpStatusCode> MetricsReportStatus(int year)
+    {
+        using var client = CreateClient();
+        using var response = await client.GetAsync($"/reports/prior-authorization-metrics?year={year}");
+        return response.StatusCode;
+    }
+
+    private HttpClient ClientFor(Caller caller) => CreateDefaultClient(new Caller.Handler(caller, this));
+
+    private readonly Dictionary<string, (string AccessToken, DateTimeOffset Expires)> _tokens = [];
+
+    /// <summary>A registered system's current access token, fetched (again) when it has none that is still good.</summary>
+    internal async Task<string> AccessTokenFor(
+        RegisteredSystem system,
+        Func<string, Task<(string AccessToken, int ExpiresIn)>> fetch)
+    {
+        var now = Clock.GetUtcNow();
+        if (_tokens.TryGetValue(system.ClientId, out var held) && held.Expires > now + TimeSpan.FromSeconds(10))
+            return held.AccessToken;
+        var (accessToken, expiresIn) = await fetch(system.ClientAssertion(now));
+        _tokens[system.ClientId] = (accessToken, now + TimeSpan.FromSeconds(expiresIn));
+        return accessToken;
     }
 
     public async Task<IReadOnlyList<PendedRequest>> PendedRequests()
@@ -96,9 +192,9 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         return (await client.GetFromJsonAsync<MetricsReport>($"/reports/prior-authorization-metrics?year={year}"))!;
     }
 
-    private async Task<PasResponse> Post(string path, string bundle)
+    private async Task<PasResponse> Post(string path, string bundle, Caller caller)
     {
-        using var client = CreateClient();
+        using var client = ClientFor(caller);
         using var content = new StringContent(bundle, Encoding.UTF8, "application/fhir+json");
         using var response = await client.PostAsync(path, content);
         return new PasResponse(response.StatusCode, await response.Content.ReadAsStringAsync());

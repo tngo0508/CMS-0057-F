@@ -1,4 +1,5 @@
 using Cms0057.PriorAuthorization;
+using Cms0057.PriorAuthorization.Authentication;
 using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Notifications;
@@ -18,6 +19,12 @@ builder.Services.AddSingleton<CoverageRequirements>();
 builder.Services.AddScoped<PasSubscriptions>();
 builder.Services.AddScoped<PriorAuthorizationMetrics>();
 builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.Configure<AuthenticationOptions>(builder.Configuration.GetSection(AuthenticationOptions.Section));
+builder.Services.AddSingleton<ClientRegister>();
+builder.Services.AddSingleton<AccessTokens>();
+builder.Services.AddHttpClient(ClientRegister.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddBearerTokens();
+var authentication = builder.Configuration.GetSection(AuthenticationOptions.Section).Get<AuthenticationOptions>() ?? new();
 
 var app = builder.Build();
 
@@ -28,8 +35,32 @@ using (var scope = app.Services.CreateScope())
     if (app.Environment.IsDevelopment()) await SyntheticMembers.Seed(db);
 }
 
-// The PAS operations a provider system calls.
-app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+// SMART discovery: where a provider system or an EHR obtains an access token, and how.
+app.MapGet("/.well-known/smart-configuration", (HttpRequest http) => Results.Json(SmartConfiguration.For(ServerRoot(http))));
+
+// The token endpoint: a registered system trades its signed client assertion for a short-lived access token.
+app.MapPost(SmartConfiguration.TokenPath, async (HttpRequest http, AccessTokens tokens) =>
+{
+    if (!http.HasFormContentType)
+        return TokenError("invalid_request", "The token request must be a form (application/x-www-form-urlencoded)");
+    var form = await http.ReadFormAsync();
+    try
+    {
+        var issued = await tokens.Issue(
+            new AccessTokens.Request(form["grant_type"], form["client_assertion_type"], form["client_assertion"], form["scope"]),
+            ServerRoot(http) + SmartConfiguration.TokenPath);
+        http.HttpContext.Response.Headers.CacheControl = "no-store";
+        http.HttpContext.Response.Headers.Pragma = "no-cache";
+        return Results.Json(new { access_token = issued.AccessToken, token_type = "bearer", expires_in = issued.ExpiresIn, scope = issued.Scope });
+    }
+    catch (AccessTokens.Refused refused)
+    {
+        return TokenError(refused.Error, refused.Message);
+    }
+});
+
+// The PAS operations a provider system calls, each with the SMART system scope it needs.
+Protected(app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRequests requests) =>
 {
     try
     {
@@ -47,9 +78,9 @@ app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRe
     {
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
     }
-});
+}), "system/Claim.write");
 
-app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+Protected(app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationRequests requests) =>
 {
     try
     {
@@ -62,10 +93,10 @@ app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationR
     {
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
     }
-});
+}), "system/Claim.read");
 
 // A provider system asks to be told when its requests are decided (PAS subscription).
-app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
+Protected(app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
 {
     try
     {
@@ -77,12 +108,13 @@ app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subs
     {
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status422UnprocessableEntity);
     }
-});
+}), "system/Subscription.write");
 
-// CRD over CDS Hooks: what an EHR calls as a clinician signs an order.
-app.MapGet("/cds-services", () => Results.Json(CoverageRequirements.Discovery()));
+// CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
+// system, as a registered client; no scope is needed beyond that.
+Protected(app.MapGet("/cds-services", () => Results.Json(CoverageRequirements.Discovery())));
 
-app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpRequest http, CoverageRequirements crd) =>
+Protected(app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpRequest http, CoverageRequirements crd) =>
 {
     try
     {
@@ -93,7 +125,7 @@ app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpReques
     {
         return Results.Problem(rejected.Message, statusCode: StatusCodes.Status400BadRequest);
     }
-});
+}));
 
 // What a Reviewer uses. Internal, not FHIR. Each decision is sent on to the subscribed provider system.
 app.MapPost("/reviewer/requests/{id:guid}/approve",
@@ -125,10 +157,22 @@ app.MapGet("/reports/prior-authorization-metrics", async (int? year, PriorAuthor
 
 app.Run();
 
+// Demands a token this service issued, with the given scope, unless Authentication:Enabled is off for a local demo.
+RouteHandlerBuilder Protected(RouteHandlerBuilder endpoint, string? scope = null) =>
+    !authentication.Enabled ? endpoint
+    : scope is null ? endpoint.RequireAuthorization()
+    : endpoint.RequireAuthorization(scope);
+
+/// RFC 6749 section 5.2: a refused token request.
+static IResult TokenError(string error, string description) =>
+    Results.Json(new { error, error_description = description }, statusCode: StatusCodes.Status400BadRequest);
+
 static IResult Fhir(Hl7.Fhir.Model.Resource resource, int status = StatusCodes.Status200OK) =>
     Results.Text(PasWire.Write(resource), "application/fhir+json", statusCode: status);
 
-static string ServerBase(HttpRequest http) => $"{http.Scheme}://{http.Host}/fhir";
+static string ServerRoot(HttpRequest http) => $"{http.Scheme}://{http.Host}";
+
+static string ServerBase(HttpRequest http) => ServerRoot(http) + "/fhir";
 
 static async Task<IResult> Decision(
     Func<Task<PriorAuthorizationRequest?>> decide,
