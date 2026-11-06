@@ -85,4 +85,5 @@ Provider Access, Payer-to-Payer). Several issues are questions for the agency ra
 
 ## Licence
 
-Not yet chosen.
+[MIT](LICENSE). The request examples adapted from `br-payer` remain under their Apache License 2.0, as noted
+above.
