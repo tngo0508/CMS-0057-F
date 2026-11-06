@@ -244,3 +244,8 @@ Content-Type: application/fhir+json
     }
   ]
 }
+
+### 5. The public prior authorization metrics for a calendar year.
+# Expect: 200 with counts of requests that needed a decision, approved/denied percentages and the
+# average and median hours to a decision. Without ?year= the report is for last year.
+GET {{baseUrl}}/reports/prior-authorization-metrics?year=2026

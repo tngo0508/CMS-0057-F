@@ -3,6 +3,7 @@ using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
+using Cms0057.PriorAuthorization.Reports;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,7 @@ builder.Services.AddSingleton<IAuthorizationRules, ResidentialTreatmentRules>();
 builder.Services.AddScoped<PriorAuthorizationRequests>();
 builder.Services.AddSingleton<CoverageRequirements>();
 builder.Services.AddScoped<PasSubscriptions>();
+builder.Services.AddScoped<PriorAuthorizationMetrics>();
 builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
 
 var app = builder.Build();
@@ -110,6 +112,10 @@ app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests reques
         Overdue = r.IsOverdue(now),
     });
 });
+
+// The public prior authorization metrics for a calendar year (the rule has the plan post last year's by March 31).
+app.MapGet("/reports/prior-authorization-metrics", async (int? year, PriorAuthorizationMetrics metrics, TimeProvider clock) =>
+    Results.Json(await metrics.For(year ?? clock.GetUtcNow().Year - 1)));
 
 app.Run();
 

@@ -89,6 +89,13 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         return response.StatusCode;
     }
 
+    /// <summary>The public prior authorization metrics for one calendar year.</summary>
+    public async Task<MetricsReport> MetricsReport(int year)
+    {
+        using var client = CreateClient();
+        return (await client.GetFromJsonAsync<MetricsReport>($"/reports/prior-authorization-metrics?year={year}"))!;
+    }
+
     private async Task<PasResponse> Post(string path, string bundle)
     {
         using var client = CreateClient();
@@ -120,6 +127,19 @@ public static class DenialReasonCodes
 {
     public const string NotMedicallyNecessary = "TEST-NMN";
 }
+
+/// <summary>One year's prior authorization metrics as the plan would publish them.</summary>
+public sealed record MetricsReport(
+    int Year,
+    string[] ServicesRequiringPriorAuthorization,
+    int RequestsReceived,
+    int Approved,
+    int Denied,
+    int Undecided,
+    double? ApprovedPercent,
+    double? DeniedPercent,
+    double? AverageHoursToDecision,
+    double? MedianHoursToDecision);
 
 /// <summary>A Pended request as the Reviewer's list shows it; ServiceCodes are the ones awaiting the decision.</summary>
 public sealed record PendedRequest(
