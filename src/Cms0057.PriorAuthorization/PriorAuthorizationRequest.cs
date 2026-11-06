@@ -28,7 +28,13 @@ public sealed class PriorAuthorizationRequest
     /// <summary>The identifier (usually the NPI) of the organization that sent the request, when it gave one.</summary>
     public string? ProviderIdentifier { get; private set; }
 
-    public string ServiceCode { get; private set; } = "";
+    /// <summary>The services asked for, one per item of the request, in the order sent.</summary>
+    public IReadOnlyList<RequestedItem> Items => _items;
+    private readonly List<RequestedItem> _items = [];
+
+    /// <summary>The billing codes of the items a Reviewer has to decide on.</summary>
+    public IEnumerable<string> ServiceCodesUnderReview => _items.Where(i => i.RequiresReview).Select(i => i.ServiceCode);
+
     public DateTimeOffset ReceivedAt { get; private set; }
 
     /// <summary>Fixed at receipt. Null when authorization is Not Required.</summary>
@@ -48,19 +54,34 @@ public sealed class PriorAuthorizationRequest
 
     private string ShortId => Id.ToString("N")[..10].ToUpperInvariant();
 
-    public static PriorAuthorizationRequest Receive(Submission submission, AuthorizationRule rule, DateTimeOffset now) =>
-        new()
+    /// <summary>
+    /// Records a submission and gives it its immediate answer. Each requested service is judged by its own rule;
+    /// the request is Pended when any of them needs review, with the tightest Decision Deadline among them, and
+    /// Not Required when none does.
+    /// </summary>
+    public static PriorAuthorizationRequest Receive(Submission submission, IAuthorizationRules rules, DateTimeOffset now)
+    {
+        var judged = submission.Services.Select(service => (Service: service, Rule: rules.For(service))).ToList();
+        var reviews = judged.Select(j => j.Rule).OfType<AuthorizationRule.RequiresReview>().ToList();
+
+        var request = new PriorAuthorizationRequest
         {
             Id = Guid.NewGuid(),
             SubmissionIdentifier = submission.SubmissionIdentifier,
             MemberIdentifier = submission.MemberIdentifier,
             ProviderIdentifier = submission.ProviderIdentifier,
-            ServiceCode = submission.Service.Code,
             ReceivedAt = now,
             RequestBundle = submission.RequestBundle,
-            State = rule is AuthorizationRule.RequiresReview ? RequestState.Pended : RequestState.NotRequired,
-            DecisionDeadline = rule is AuthorizationRule.RequiresReview review ? now + review.DecideWithin : null,
+            State = reviews.Count > 0 ? RequestState.Pended : RequestState.NotRequired,
+            DecisionDeadline = reviews.Count > 0 ? now + reviews.Min(r => r.DecideWithin) : null,
         };
+        request._items.AddRange(judged.Select(j =>
+            RequestedItem.Of(j.Service, requiresReview: j.Rule is AuthorizationRule.RequiresReview)));
+        return request;
+    }
+
+    /// <summary>Whether the item with this sequence number is one the Reviewer decides on.</summary>
+    public bool RequiresReview(int sequence) => _items.FirstOrDefault(i => i.Sequence == sequence)?.RequiresReview ?? false;
 
     public bool IsOverdue(DateTimeOffset now) => State == RequestState.Pended && now > DecisionDeadline;
 
@@ -111,15 +132,40 @@ public sealed class AlreadyAnswered(RequestState state) : Exception($"The reques
 /// </summary>
 public sealed class RequestRejected(string reason) : Exception(reason);
 
+/// <summary>One service a Prior Authorization Request asks for, as recorded with the request.</summary>
+public sealed class RequestedItem
+{
+    private RequestedItem() { }
+
+    /// <summary>The item's sequence number in the request Bundle.</summary>
+    public int Sequence { get; private set; }
+
+    public string ServiceCode { get; private set; } = "";
+
+    /// <summary>Billing modifiers, space-separated.</summary>
+    public string Modifiers { get; private set; } = "";
+
+    /// <summary>True when this item is what the request is Pended for; false when it is Not Required.</summary>
+    public bool RequiresReview { get; private set; }
+
+    public static RequestedItem Of(RequestedService service, bool requiresReview) => new()
+    {
+        Sequence = service.Sequence,
+        ServiceCode = service.Code,
+        Modifiers = string.Join(' ', service.Modifiers),
+        RequiresReview = requiresReview,
+    };
+}
+
 /// <summary>What the service takes from a submitted request Bundle.</summary>
 public sealed record Submission(
     string SubmissionIdentifier,
     string MemberIdentifier,
     string? ProviderIdentifier,
-    RequestedService Service,
+    IReadOnlyList<RequestedService> Services,
     string RequestBundle);
 
-public sealed record RequestedService(string Code, IReadOnlyList<string> Modifiers);
+public sealed record RequestedService(int Sequence, string Code, IReadOnlyList<string> Modifiers);
 
 /// <summary>
 /// A provider system asking what has become of the requests its organization sent for a Member, optionally narrowed

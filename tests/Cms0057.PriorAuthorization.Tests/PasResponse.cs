@@ -61,8 +61,14 @@ public sealed class PasResponse
     public string BundleType => JsonDocument.Parse(Body).RootElement.GetProperty("type").GetString()!;
 
     /// <summary>X12 306 review action: A1 certified, A2 not certified, A3 not required, A4 pended.</summary>
-    public string ReviewActionCode =>
-        Extension(ReviewAction, Pas + "extension-reviewActionCode")!.Value
+    public string ReviewActionCode => ReviewActionCodeOf(ReviewAction);
+
+    /// <summary>The review action of every item, in item order.</summary>
+    public IReadOnlyList<string> ReviewActionCodes =>
+        [.. ClaimResponse.GetProperty("item").EnumerateArray().Select(item => ReviewActionCodeOf(ReviewActionOf(item)))];
+
+    private static string ReviewActionCodeOf(JsonElement reviewAction) =>
+        Extension(reviewAction, Pas + "extension-reviewActionCode")!.Value
             .GetProperty("valueCodeableConcept").GetProperty("coding")[0].GetProperty("code").GetString()!;
 
     public string? AuthorizationNumber =>
@@ -84,8 +90,10 @@ public sealed class PasResponse
 
     private JsonElement Item => ClaimResponse.GetProperty("item")[0];
 
-    private JsonElement ReviewAction =>
-        Extension(Item.GetProperty("adjudication")[0], Pas + "extension-reviewAction")
+    private JsonElement ReviewAction => ReviewActionOf(Item);
+
+    private JsonElement ReviewActionOf(JsonElement item) =>
+        Extension(item.GetProperty("adjudication")[0], Pas + "extension-reviewAction")
         ?? throw new InvalidOperationException($"No review action in the response: {Body}");
 
     private static JsonElement? Extension(JsonElement parent, string url)

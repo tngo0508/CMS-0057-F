@@ -20,11 +20,21 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             request.HasIndex(r => r.SubmissionIdentifier).IsUnique();
             request.Property(r => r.MemberIdentifier).HasMaxLength(100);
             request.Property(r => r.ProviderIdentifier).HasMaxLength(100);
-            request.Property(r => r.ServiceCode).HasMaxLength(50);
             request.Property(r => r.State).HasConversion<string>().HasMaxLength(20);
             request.Property(r => r.AuthorizationNumber).HasMaxLength(50);
             request.Property(r => r.DenialReason).HasMaxLength(4000);
             request.Ignore(r => r.ReferenceNumber);
+            request.Ignore(r => r.ServiceCodesUnderReview);
+            request.OwnsMany(r => r.Items, item =>
+            {
+                item.ToTable("RequestItems");
+                item.WithOwner().HasForeignKey("RequestId");
+                item.Property<int>("Id");
+                item.HasKey("Id");
+                item.Property(i => i.ServiceCode).HasMaxLength(50);
+                item.Property(i => i.Modifiers).HasMaxLength(200);
+            });
+            request.Navigation(r => r.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
         });
 
         model.Entity<Member>(member =>

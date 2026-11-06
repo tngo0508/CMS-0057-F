@@ -81,7 +81,8 @@ public sealed class CoverageRequirements(IAuthorizationRules rules, TimeProvider
     {
         var code = order.Code?.Coding.FirstOrDefault()?.Code
                    ?? throw new RequestRejected($"ServiceRequest/{order.Id} has no code");
-        return new RequestedService(code, [.. order.OrderDetail.SelectMany(d => d.Coding).Select(c => c.Code)]);
+        // A draft order is a single service, so it is item 1.
+        return new RequestedService(1, code, [.. order.OrderDetail.SelectMany(d => d.Coding).Select(c => c.Code).OfType<string>()]);
     }
 
     private static HookRequest ReadHookRequest(string json)

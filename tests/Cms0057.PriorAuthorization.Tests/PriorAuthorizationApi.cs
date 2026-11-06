@@ -112,11 +112,11 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         $@"Server=(localdb)\MSSQLLocalDB;Database={_database};Integrated Security=true;TrustServerCertificate=true";
 }
 
-/// <summary>A Pended request as the Reviewer's list shows it.</summary>
+/// <summary>A Pended request as the Reviewer's list shows it; ServiceCodes are the ones awaiting the decision.</summary>
 public sealed record PendedRequest(
     string Id,
     string MemberIdentifier,
-    string ServiceCode,
+    string[] ServiceCodes,
     DateTimeOffset ReceivedAt,
     DateTimeOffset DecisionDeadline,
     bool Overdue);

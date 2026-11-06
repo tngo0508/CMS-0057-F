@@ -104,7 +104,7 @@ app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests reques
     {
         r.Id,
         r.MemberIdentifier,
-        r.ServiceCode,
+        ServiceCodes = r.ServiceCodesUnderReview,
         r.ReceivedAt,
         r.DecisionDeadline,
         Overdue = r.IsOverdue(now),

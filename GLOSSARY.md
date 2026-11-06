@@ -33,6 +33,12 @@ _Avoid_: Patient (except as the name of the FHIR resource), client, beneficiary,
 A provider's request that the Behavioral Health Plan approve a service for a Member before it is delivered.
 _Avoid_: TAR, SAR, auth, authorization (unqualified)
 
+**Requested Service**:
+One service a Prior Authorization Request asks for. A request may ask for several; each is answered on its own, but
+the request is Pended as a whole when any of them needs review, with the tightest Decision Deadline among them, and
+the Reviewer decides it as a whole.
+_Avoid_: Line, item (except as the name of the FHIR element), procedure
+
 **Prior Authorization Decision**:
 The Behavioral Health Plan's final answer to a Prior Authorization Request: approved or denied. A Pended request has no
 decision yet.

@@ -20,6 +20,14 @@ public static class RequestBundles
     public static string OutpatientCounseling(string modifier = "U7") =>
         ForService("H0004", modifier, KnownMember, null, "preauthorization");
 
+    /// <summary>One request asking for several services at once, each as its own item in the order given.</summary>
+    public static string ForServices(params (string Code, string Modifier)[] services) =>
+        ForItems(services, KnownMember, null, "preauthorization");
+
+    public static readonly (string Code, string Modifier) Residential = ("H0019", "U1");
+    public static readonly (string Code, string Modifier) Counseling = ("H0004", "U7");
+    public static readonly (string Code, string Modifier) GroupCounseling = ("H0005", "U7");
+
     /// <summary>The NPI of the treatment provider that sends every request in these tests.</summary>
     public const string TreatmentProviderNpi = "8189991234";
 
@@ -150,9 +158,31 @@ public static class RequestBundles
         string modifier,
         string memberIdentifier,
         string? bundleIdentifier,
+        string claimUse) =>
+        ForItems([(serviceCode, modifier)], memberIdentifier, bundleIdentifier, claimUse);
+
+    private static string ForItems(
+        IReadOnlyList<(string Code, string Modifier)> services,
+        string memberIdentifier,
+        string? bundleIdentifier,
         string claimUse)
     {
         bundleIdentifier ??= Guid.NewGuid().ToString("N");
+        var items = string.Join(",\n", services.Select((service, index) => $$"""
+                  {
+                    "extension": [
+                      {
+                        "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-itemTraceNumber",
+                        "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "{{1122334 + index}}" }
+                      }
+                    ],
+                    "sequence": {{index + 1}},
+                    "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI", "display": "Substance Abuse" }] },
+                    "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Code}}" }] },
+                    "modifier": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Modifier}}" }] }],
+                    "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] }
+                  }
+                  """));
 
         return $$"""
         {
@@ -181,19 +211,7 @@ public static class RequestBundles
                 "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
                 "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
                 "item": [
-                  {
-                    "extension": [
-                      {
-                        "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-itemTraceNumber",
-                        "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "1122334" }
-                      }
-                    ],
-                    "sequence": 1,
-                    "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI", "display": "Substance Abuse" }] },
-                    "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{serviceCode}}" }] },
-                    "modifier": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{modifier}}" }] }],
-                    "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] }
-                  }
+        {{items}}
                 ]
               }
             },

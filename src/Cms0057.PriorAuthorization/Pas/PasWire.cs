@@ -45,10 +45,10 @@ public static class PasWire
         Require(bundle.Timestamp is not null, "Bundle.timestamp is required");
         Require(bundle.Entry.All(e => !string.IsNullOrWhiteSpace(e.FullUrl)), "All Bundle.entry elements must have a fullUrl");
 
-        // Limits of this first slice, beyond what br-payer checks.
-        Require(claim.Item.Count == 1, "This service accepts one item per request");
-        var item = claim.Item[0];
-        Require(item.ProductOrService?.Coding.FirstOrDefault()?.Code is not null, "Claim.item.productOrService is required");
+        // Beyond what br-payer checks: every item must say which service it asks for.
+        foreach (var each in claim.Item)
+            Require(each.ProductOrService?.Coding.FirstOrDefault()?.Code is not null,
+                $"Claim.item.productOrService is required for item {each.Sequence}");
         var member = Resolve<Patient>(bundle, claim.Patient);
         Require(member.Identifier.Count > 0, "The Patient must carry a member identifier");
 
@@ -56,9 +56,13 @@ public static class PasWire
             SubmissionIdentifier: $"{bundle.Identifier.System}|{bundle.Identifier.Value}",
             MemberIdentifier: MemberIdentifier(member),
             ProviderIdentifier: ProviderIdentifier(bundle, claim.Provider),
-            Service: new RequestedService(
-                item.ProductOrService.Coding[0].Code,
-                [.. item.Modifier.SelectMany(m => m.Coding).Select(c => c.Code)]),
+            Services:
+            [
+                .. claim.Item.Select((item, index) => new RequestedService(
+                    item.Sequence ?? index + 1,
+                    item.ProductOrService!.Coding[0].Code!,
+                    [.. item.Modifier.SelectMany(m => m.Coding).Select(c => c.Code).OfType<string>()])),
+            ],
             RequestBundle: requestBundle);
     }
 
@@ -125,21 +129,24 @@ public static class PasWire
             Outcome = ClaimProcessingCodes.Complete,
         };
 
-        foreach (var requested in claim.Item)
+        foreach (var (requested, index) in claim.Item.Select((item, index) => (item, index)))
         {
+            // Each item is answered on its own: one the Reviewer decides on follows the request; any other is Not Required.
+            var state = request.RequiresReview(requested.Sequence ?? index + 1) ? request.State : RequestState.NotRequired;
+
             var item = new ClaimResponse.ItemComponent { ItemSequence = requested.Sequence };
             foreach (var trace in requested.Extension.Where(e => e.Url == ItemTraceNumberUrl))
                 item.Extension.Add((Extension)trace.DeepCopy());
-            if (request.State == RequestState.Pended)
+            if (state == RequestState.Pended)
                 item.Extension.Add(new Extension(AdministrationReferenceNumberUrl, new FhirString(request.ReferenceNumber)));
 
-            var (code, display) = ReviewAction(request.State);
+            var (code, display) = ReviewAction(state);
             var reviewAction = new Extension { Url = ReviewActionUrl };
             reviewAction.Extension.Add(new Extension(
                 ReviewActionCodeUrl,
                 new CodeableConcept(ReviewActionSystem, code, display, null)));
 
-            if (request.State == RequestState.Approved)
+            if (state == RequestState.Approved)
             {
                 // As in br-payer: the Authorization Number rides on the review action, the period on the item.
                 reviewAction.Extension.Add(new Extension("number", new FhirString(request.AuthorizationNumber)));
@@ -152,7 +159,7 @@ public static class PasWire
                 }));
             }
 
-            if (request.State == RequestState.Denied)
+            if (state == RequestState.Denied)
             {
                 // br-payer has no place for a free-text Denial Reason; a process note on the item is ours.
                 item.NoteNumber = [1];

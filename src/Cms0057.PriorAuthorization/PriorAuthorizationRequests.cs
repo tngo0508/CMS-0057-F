@@ -24,7 +24,7 @@ public sealed class PriorAuthorizationRequests(
         if (!await db.Members.AnyAsync(m => m.Identifier == submission.MemberIdentifier))
             throw new RequestRejected($"{submission.MemberIdentifier} is not a Member of this plan");
 
-        var request = PriorAuthorizationRequest.Receive(submission, rules.For(submission.Service), clock.GetUtcNow());
+        var request = PriorAuthorizationRequest.Receive(submission, rules, clock.GetUtcNow());
         db.Requests.Add(request);
         try
         {

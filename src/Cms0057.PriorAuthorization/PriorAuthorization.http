@@ -158,7 +158,8 @@ Content-Type: application/fhir+json
 }
 
 ### 2. Reviewer lists the Pended requests.
-# Expect: the request from step 1, with decisionDeadline 24 hours after receivedAt and overdue false.
+# Expect: the request from step 1, with serviceCodes ["H0019"], decisionDeadline 24 hours after receivedAt
+# and overdue false. (A request may carry several items; only the ones needing review are listed here.)
 GET {{baseUrl}}/reviewer/pended-requests
 
 ### 3a. Reviewer approves the request from step 1.

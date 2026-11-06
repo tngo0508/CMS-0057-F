@@ -119,11 +119,6 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("ServiceCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -140,6 +135,48 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Requests");
+                });
+
+            modelBuilder.Entity("Cms0057.PriorAuthorization.PriorAuthorizationRequest", b =>
+                {
+                    b.OwnsMany("Cms0057.PriorAuthorization.RequestedItem", "Items", b1 =>
+                        {
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("int");
+
+                            SqlServerPropertyBuilderExtensions.UseIdentityColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("Modifiers")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("nvarchar(200)");
+
+                            b1.Property<Guid>("RequestId")
+                                .HasColumnType("uniqueidentifier");
+
+                            b1.Property<bool>("RequiresReview")
+                                .HasColumnType("bit");
+
+                            b1.Property<int>("Sequence")
+                                .HasColumnType("int");
+
+                            b1.Property<string>("ServiceCode")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("nvarchar(50)");
+
+                            b1.HasKey("Id");
+
+                            b1.HasIndex("RequestId");
+
+                            b1.ToTable("RequestItems", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("RequestId");
+                        });
+
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }
