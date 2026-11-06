@@ -116,15 +116,19 @@ public sealed class AccessTokens(
             throw new Refused("invalid_client", "The client assertion has already been presented");
     }
 
-    /// <summary>The scopes asked for, each of which the client must be registered for; all of them if none is asked for.</summary>
+    /// <summary>
+    /// What the client asked for, as far as it is registered for it (SMART lets the server grant fewer scopes than
+    /// were asked for, and the response says which); everything it is registered for when it asks for nothing in
+    /// particular. Refused only when none of what it asked for can be granted.
+    /// </summary>
     private static string Grant(RegisteredClient client, string? requested)
     {
         var registered = Scopes.Parse(client.Scopes);
         var asked = Scopes.Parse(requested);
         if (asked.Count == 0) return string.Join(' ', registered);
-        var refused = asked.Where(scope => !Scopes.Cover(registered, scope)).ToList();
-        if (refused.Count > 0)
-            throw new Refused("invalid_scope", "The client is not registered for: " + string.Join(' ', refused));
-        return string.Join(' ', asked);
+        var granted = asked.SelectMany(scope => Scopes.Granted(registered, scope)).Distinct().ToList();
+        if (granted.Count == 0)
+            throw new Refused("invalid_scope", "The client is not registered for any of: " + string.Join(' ', asked));
+        return string.Join(' ', granted);
     }
 }

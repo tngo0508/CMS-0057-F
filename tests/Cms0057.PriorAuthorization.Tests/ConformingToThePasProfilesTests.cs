@@ -24,6 +24,16 @@ public sealed class ConformingToThePasProfilesTests : IDisposable
     }
 
     [Fact]
+    public async Task A_coverage_carrying_the_x12_relationship_code_beside_the_fhir_code_is_accepted()
+    {
+        // PAS asks for X12's relationship code (1069) alongside the FHIR one, and br-provider always sends both.
+        // The X12 value set is licensed and not available to the validator, which must still tell the two apart.
+        var response = await _api.Submit(RequestBundles.ResidentialTreatment());
+
+        Assert.Equal((HttpStatusCode.OK, "A4"), (response.Status, response.ReviewActionCode));
+    }
+
+    [Fact]
     public async Task A_rejected_request_is_not_recorded_for_review()
     {
         await _api.Submit(RequestBundles.ResidentialTreatment(withPatientGender: false));

@@ -22,7 +22,7 @@ public sealed class AuthenticatingAProviderSystemTests : IDisposable
         Assert.Equal("http://localhost/auth/token", configuration.GetProperty("token_endpoint").GetString());
         Assert.Equal(["private_key_jwt"], Strings(configuration, "token_endpoint_auth_methods_supported"));
         Assert.Equal(["RS384", "ES384"], Strings(configuration, "token_endpoint_auth_signing_alg_values_supported"));
-        Assert.Equal(["client-confidential-asymmetric"], Strings(configuration, "capabilities"));
+        Assert.Equal(["client-confidential-asymmetric", "permission-v1", "permission-v2"], Strings(configuration, "capabilities"));
         Assert.Contains("system/Claim.write", Strings(configuration, "scopes_supported"));
     }
 
@@ -119,6 +119,29 @@ public sealed class AuthenticatingAProviderSystemTests : IDisposable
         var token = await _api.RequestToken(_api.ProviderSystem.ClientAssertion(Now), scope: "system/Patient.read");
 
         Assert.Equal((HttpStatusCode.BadRequest, "invalid_scope"), (token.Status, token.Error));
+    }
+
+    [Fact]
+    public async Task A_system_asking_in_smart_v2_scopes_is_granted_the_part_it_is_registered_for()
+    {
+        // br-provider asks a payer for "system/Claim.crus system/ClaimResponse.rs" (SMART App Launch 2 spelling);
+        // this plan registers its systems with the v1 spelling. A scope it is not registered for (Patient here)
+        // is left out of the grant rather than failing the whole request, as SMART allows.
+        var token = await _api.RequestToken(_api.ProviderSystem.ClientAssertion(Now), scope: "system/Claim.crus system/ClaimResponse.rs system/Patient.rs");
+
+        Assert.Equal((HttpStatusCode.OK, "system/Claim.crus system/ClaimResponse.rs"), (token.Status, token.Scope));
+        var response = await _api.Submit(RequestBundles.ResidentialTreatment(), Caller.Bearing(token.AccessToken!));
+        Assert.Equal(HttpStatusCode.OK, response.Status);
+    }
+
+    [Fact]
+    public async Task A_v2_token_with_read_permissions_only_cannot_submit()
+    {
+        var token = await _api.RequestToken(_api.ProviderSystem.ClientAssertion(Now), scope: "system/Claim.rs");
+
+        var response = await _api.Submit(RequestBundles.ResidentialTreatment(), Caller.Bearing(token.AccessToken!));
+
+        Assert.Equal((HttpStatusCode.Forbidden, "OperationOutcome"), (response.Status, response.ResourceType));
     }
 
     [Fact]

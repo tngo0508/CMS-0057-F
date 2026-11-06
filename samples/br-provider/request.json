@@ -1,0 +1,148 @@
+{
+  "resourceType": "Bundle",
+  "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-pas-request-bundle"] },
+  "identifier": { "system": "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER", "value": "TXN-REPLAY-0001" },
+  "type": "collection",
+  "timestamp": "2026-11-06T18:00:00.000Z",
+  "entry": [
+    {
+      "fullUrl": "http://provider.example.org/fhir/Claim/c1a4e2f0-0000-4000-8000-000000000001",
+      "resource": {
+        "resourceType": "Claim",
+        "id": "c1a4e2f0-0000-4000-8000-000000000001",
+        "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-claim"] },
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-TransmissionIdentifiers",
+            "extension": [
+              { "url": "applicationSenderCode", "valueString": "7718120064" },
+              { "url": "applicationReceiverCode", "valueString": "1234567893" }
+            ]
+          }
+        ],
+        "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "REPLAY-CLAIM-0001" }],
+        "status": "active",
+        "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "professional" }] },
+        "use": "preauthorization",
+        "patient": { "reference": "Patient/pat013" },
+        "created": "2026-11-06",
+        "provider": { "reference": "Organization/req-org-1" },
+        "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
+        "insurer": { "reference": "Organization/org1" },
+        "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/cov013" } }],
+        "careTeam": [
+          {
+            "sequence": 1,
+            "provider": { "reference": "PractitionerRole/pr-1" },
+            "extension": [{ "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-careTeamClaimScope", "valueBoolean": true }]
+          }
+        ],
+        "diagnosis": [{ "sequence": 1, "diagnosisCodeableConcept": { "coding": [{ "system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "F33.1" }] } }],
+        "item": [
+          {
+            "sequence": 1,
+            "careTeamSequence": [1],
+            "diagnosisSequence": [1],
+            "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "42", "display": "Home Health Care" }] },
+            "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "12", "display": "Home" }] },
+            "extension": [
+              { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-serviceItemRequestType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1525", "code": "HS", "display": "Health Services Review" }] } },
+              { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "I", "display": "Initial" }] } },
+              { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-requestedService", "valueReference": { "reference": "ServiceRequest/1720" } }
+            ],
+            "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H2012" }] }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/Patient/pat013",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pat013",
+        "identifier": [
+          { "system": "http://provider.example.org/fhir/sid/mrn", "value": "MRN-013" },
+          { "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB", "display": "Member Number" }] }, "system": "http://example.org/MIN", "value": "90000001A" }
+        ],
+        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }],
+        "gender": "female",
+        "birthDate": "1990-01-01"
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/Practitioner/prac1",
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "prac1",
+        "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }],
+        "name": [{ "family": "CAREFUL", "given": ["ADAM"] }],
+        "telecom": [{ "system": "phone", "value": "555-555-5555" }]
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/PractitionerRole/pr-1",
+      "resource": {
+        "resourceType": "PractitionerRole",
+        "id": "pr-1",
+        "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-practitionerrole"] },
+        "practitioner": { "reference": "Practitioner/prac1" },
+        "organization": { "reference": "Organization/req-org-1" },
+        "telecom": [{ "system": "phone", "value": "555-555-5555" }]
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/Organization/req-org-1",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "req-org-1",
+        "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-requestor"] },
+        "identifier": [{ "system": "http://example.org/fhir/org-identifier", "value": "7718120064" }],
+        "name": "Demo Provider Organization",
+        "active": true
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/Organization/org1",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "org1",
+        "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }],
+        "active": true,
+        "name": "SYNTHETIC BEHAVIORAL HEALTH PLAN"
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/Coverage/cov013",
+      "resource": {
+        "resourceType": "Coverage",
+        "id": "cov013",
+        "identifier": [
+          { "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB", "display": "Member Number" }] }, "system": "http://example.org/MIN", "value": "90000001A" }
+        ],
+        "status": "active",
+        "subscriberId": "90000001A",
+        "beneficiary": { "reference": "Patient/pat013" },
+        "relationship": {
+          "coding": [
+            { "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" },
+            { "system": "https://codesystem.x12.org/005010/1069", "code": "18" }
+          ]
+        },
+        "payor": [{ "reference": "Organization/org1" }]
+      }
+    },
+    {
+      "fullUrl": "http://provider.example.org/fhir/ServiceRequest/1720",
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "1720",
+        "status": "active",
+        "intent": "order",
+        "subject": { "reference": "Patient/pat013" },
+        "requester": { "reference": "Practitioner/prac1" },
+        "code": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H2012" }] },
+        "reasonCode": [{ "coding": [{ "system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "F33.1" }] }]
+      }
+    }
+  ]
+}

@@ -9,9 +9,12 @@ public static class SmartConfiguration
 {
     public const string TokenPath = "/auth/token";
 
-    /// <summary>SMART App Launch 1.0 system scopes; a scope may use <c>*</c> for the resource or the permission.</summary>
+    /// <summary>
+    /// The system scopes the operations need, in the SMART 1 spelling; a client may ask in the SMART 2 spelling
+    /// (<c>system/Claim.crus</c>) and is answered in it (see <see cref="Scopes"/>).
+    /// </summary>
     public static readonly string[] ScopesSupported =
-        ["system/Claim.read", "system/Claim.write", "system/Subscription.write"];
+        ["system/Claim.read", "system/Claim.write", "system/ClaimResponse.read", "system/Subscription.read", "system/Subscription.write"];
 
     public static readonly string[] SigningAlgorithms = ["RS384", "ES384"];
 
@@ -22,6 +25,6 @@ public static class SmartConfiguration
         token_endpoint_auth_signing_alg_values_supported = SigningAlgorithms,
         scopes_supported = ScopesSupported,
         grant_types_supported = new[] { "client_credentials" },
-        capabilities = new[] { "client-confidential-asymmetric" },
+        capabilities = new[] { "client-confidential-asymmetric", "permission-v1", "permission-v2" },
     };
 }

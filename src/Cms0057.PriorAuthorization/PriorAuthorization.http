@@ -20,7 +20,7 @@
 POST {{baseUrl}}/auth/token
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/Subscription.write
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write
 
 ### B. What the service advertises about obtaining a token (no token needed).
 GET {{baseUrl}}/.well-known/smart-configuration
@@ -192,6 +192,12 @@ Authorization: Bearer {{token.response.body.$.access_token}}
   }
 }
 
+### 1c. (Optional) The provider system looks for the subscription it already holds, by its endpoint.
+# br-provider does this before every subscribe and only subscribes when nothing comes back.
+# Expect: 200 with a searchset Bundle; total 1 after step 1b, 0 for an endpoint nobody subscribed.
+GET {{baseUrl}}/fhir/Subscription?url=http%3A%2F%2Flocalhost%3A9999%2Fapi%2Fpas%2Fnotification&status=requested,active
+Authorization: Bearer {{token.response.body.$.access_token}}
+
 ### 2. Reviewer lists the Pended requests.
 # A Reviewer would normally do steps 2 and 3 on the page at {{baseUrl}}/reviewer, which calls these same
 # endpoints; the raw requests are here to see the wire shapes.
@@ -292,6 +298,11 @@ Authorization: Bearer {{token.response.body.$.access_token}}
     }
   ]
 }
+
+### 4b. Provider reads one response by its id (the URL a decision notification points at).
+# Expect: 200 with the ClaimResponse alone, in its current state; an unknown id gives 404 with an OperationOutcome.
+GET {{baseUrl}}/fhir/ClaimResponse/{{submit.response.body.$.entry[0].resource.id}}
+Authorization: Bearer {{token.response.body.$.access_token}}
 
 ### 5. The public prior authorization metrics for a calendar year.
 # Expect: 200 with counts of requests that needed a decision, approved/denied percentages and the

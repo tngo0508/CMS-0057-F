@@ -139,7 +139,7 @@ public sealed class PasProfiles
         var crossVersion = new FhirPackageSource(ModelInfo.ModelInspector,
             [files[CrossVersionPackage]], Path.Combine(packageFolder, "cache-cross-version"));
         var resolver = new CachedResolver(new DiscriminatorPathsFirelyCanRead(new MultiResolver(current, crossVersion)));
-        return new Validator(resolver, new LocalTerminologyService(resolver));
+        return new Validator(resolver, new X12ValueSetsByCodeSystem(new LocalTerminologyService(resolver)));
     }
 
     /// <summary>The package's .tgz in the package folder, fetched from the package server if it is not there yet.</summary>

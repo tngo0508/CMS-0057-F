@@ -28,6 +28,8 @@ public static class PasWire
     private const string AdjudicationSystem = "http://terminology.hl7.org/CodeSystem/adjudication";
     private const string IdentifierTypeSystem = "http://terminology.hl7.org/CodeSystem/v2-0203";
     private const string SubmissionIdentifierSystem = "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER";
+    /// <summary>The system br-payer puts its ClaimResponse tracking identifier under; provider systems file the response by it.</summary>
+    private const string TrackingIdentifierSystem = "http://example.org/PATIENT_EVENT_TRACE_NUMBER";
     private const string NpiSystem = "http://hl7.org/fhir/sid/us-npi";
 
     public static string Write(Resource resource) => FhirJson.Write(resource);
@@ -158,6 +160,10 @@ public static class PasWire
         return parameters;
     }
 
+    /// <summary>The ClaimResponse alone, as a provider system reads it at the URL a response or a notification named.</summary>
+    public static ClaimResponse ClaimResponseOf(PriorAuthorizationRequest request, string serverBase) =>
+        (ClaimResponse)Response(request, serverBase).Entry[0].Resource;
+
     /// <summary>Writes the PAS response Bundle for a request in its current state.</summary>
     public static Bundle Response(PriorAuthorizationRequest request, string serverBase)
     {
@@ -168,6 +174,8 @@ public static class PasWire
         {
             Id = request.Id.ToString(),
             Meta = new Meta { Profile = [ClaimResponseProfile] },
+            // The payer's tracking identifier for the response, the same for the life of the request.
+            Identifier = [new Identifier(TrackingIdentifierSystem, request.Id.ToString())],
             Status = FinancialResourceStatusCodes.Active,
             Type = (CodeableConcept)claim.Type.DeepCopy(),
             Use = ClaimUseCode.Preauthorization,
@@ -305,6 +313,20 @@ public static class PasWire
     public static OperationOutcome Rejection(RequestRejected rejected) => rejected is ProfileViolation violation
         ? new OperationOutcome { Issue = [.. violation.Issues] }
         : Rejection(rejected.Message);
+
+    /// <summary>Writes the OperationOutcome for a resource the service does not hold.</summary>
+    public static OperationOutcome NotFound(string what) => new()
+    {
+        Issue =
+        [
+            new OperationOutcome.IssueComponent
+            {
+                Severity = OperationOutcome.IssueSeverity.Error,
+                Code = OperationOutcome.IssueType.NotFound,
+                Diagnostics = what,
+            },
+        ],
+    };
 
     /// <summary>Writes the OperationOutcome that tells a provider system why its request was rejected.</summary>
     public static OperationOutcome Rejection(string reason) => new()

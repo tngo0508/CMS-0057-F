@@ -110,6 +110,9 @@ public sealed class PriorAuthorizationRequests(
         return Decide(id, request => request.Deny(denialReason, coded, clock.GetUtcNow()));
     }
 
+    /// <summary>The request a provider system asks about by the id its ClaimResponse carries, or null.</summary>
+    public async Task<PriorAuthorizationRequest?> Find(Guid id) => await db.Requests.FindAsync(id);
+
     private async Task<PriorAuthorizationRequest?> Decide(Guid id, Action<PriorAuthorizationRequest> decision)
     {
         var request = await db.Requests.FindAsync(id);

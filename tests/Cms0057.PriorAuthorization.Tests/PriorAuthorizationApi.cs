@@ -38,7 +38,7 @@ public sealed class PriorAuthorizationApi(
 
     /// <summary>The provider system the tests act as, registered with the plan for every PAS scope.</summary>
     public RegisteredSystem ProviderSystem { get; } =
-        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/Subscription.write");
+        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write");
 
     /// <summary>The EHR the tests act as for CRD; registered by the URL where it publishes its keys.</summary>
     public RegisteredSystem Ehr { get; } = new("synthetic-ehr", "system/Claim.read");
@@ -116,6 +116,22 @@ public sealed class PriorAuthorizationApi(
     /// <summary>A provider system asks to be notified of decisions (PAS Subscription).</summary>
     public async Task<PasResponse> Subscribe(string subscription, Caller? caller = null) =>
         await Post("/fhir/Subscription", subscription, caller ?? Caller.As(ProviderSystem));
+
+    /// <summary>The provider system looks for a subscription it already holds, by its notification endpoint.</summary>
+    public async Task<PasResponse> FindSubscriptions(string notificationUrl, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync($"/fhir/Subscription?url={Uri.EscapeDataString(notificationUrl)}&status=requested,active");
+        return new PasResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>The provider system reads a resource at a URL the service gave it (a notification's focus, say).</summary>
+    public async Task<PasResponse> Read(string url, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync(url);
+        return new PasResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
 
     public async Task<PasResponse> Submit(string requestBundle, Caller? caller = null) =>
         await Post("/fhir/Claim/$submit", requestBundle, caller ?? Caller.As(ProviderSystem));

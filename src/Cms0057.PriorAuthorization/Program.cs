@@ -99,6 +99,13 @@ Protected(app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuth
     }
 }), "system/Claim.read");
 
+// A provider system reads a ClaimResponse by the id the response gave it, which is also what a notification's
+// focus names; br-provider reads one this way when it has no context for an inquiry.
+Protected(app.MapGet("/fhir/ClaimResponse/{id:guid}", async (Guid id, HttpRequest http, PriorAuthorizationRequests requests) =>
+    await requests.Find(id) is { } request
+        ? Fhir(PasWire.ClaimResponseOf(request, ServerBase(http)))
+        : Fhir(PasWire.NotFound($"No ClaimResponse with id {id}"), StatusCodes.Status404NotFound)), "system/ClaimResponse.read");
+
 // A provider system asks to be told when its requests are decided (PAS subscription).
 Protected(app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
 {
@@ -113,6 +120,10 @@ Protected(app.MapPost("/fhir/Subscription", async (HttpRequest http, PasSubscrip
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status422UnprocessableEntity);
     }
 }), "system/Subscription.write");
+
+// A provider system looks for the subscription it already holds before it subscribes again, as br-provider does.
+Protected(app.MapGet("/fhir/Subscription", async (HttpRequest http, PasSubscriptions subscriptions) =>
+    Fhir(await subscriptions.Find(QueryValue(http, "url"), QueryValue(http, "status"), ServerBase(http)))), "system/Subscription.read");
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
 // system, as a registered client; no scope is needed beyond that.
@@ -184,6 +195,10 @@ static IResult Fhir(Hl7.Fhir.Model.Resource resource, int status = StatusCodes.S
 static string ServerRoot(HttpRequest http) => $"{http.Scheme}://{http.Host}";
 
 static string ServerBase(HttpRequest http) => ServerRoot(http) + "/fhir";
+
+/// <summary>A search parameter's value, or null when the request does not carry it.</summary>
+static string? QueryValue(HttpRequest http, string name) =>
+    http.Query.TryGetValue(name, out var values) ? values.ToString() : null;
 
 static async Task<IResult> Decision(
     Func<Task<PriorAuthorizationRequest?>> decide,

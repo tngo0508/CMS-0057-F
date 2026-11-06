@@ -287,10 +287,8 @@ public static class RequestBundles
     /// <summary>
     /// The entries every request carries besides the Claim: the sending provider, the plan, the Member's Coverage
     /// and the Member, shaped to PAS's requestor, insurer, coverage and beneficiary profiles (US Core underneath:
-    /// hence the Patient's gender and the Coverage's member identifier and relationship). PAS would also like the
-    /// X12 relationship code (1069, "18" for self) beside the FHIR one, but the validator cannot tell that coding
-    /// slice apart without X12's licensed value set and counts every coding against it; so the Coverage carries
-    /// the FHIR code alone and names the subscriber, as PAS's self-beneficiary rule then asks.
+    /// hence the Patient's gender and the Coverage's member identifier and relationship). The relationship carries
+    /// the X12 code (1069, "18" for self) beside the FHIR one, as PAS asks and br-provider sends.
     /// </summary>
     private static string Participants(string memberIdentifier, string providerNpi, bool withPatientGender) => $$"""
             {
@@ -329,7 +327,12 @@ public static class RequestBundles
                 "subscriberId": "{{memberIdentifier}}",
                 "subscriber": { "reference": "Patient/MemberExample" },
                 "beneficiary": { "reference": "Patient/MemberExample" },
-                "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
+                "relationship": {
+                  "coding": [
+                    { "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" },
+                    { "system": "https://codesystem.x12.org/005010/1069", "code": "18" }
+                  ]
+                },
                 "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
               }
             },

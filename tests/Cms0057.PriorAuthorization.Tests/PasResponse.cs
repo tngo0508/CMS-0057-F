@@ -32,6 +32,35 @@ public sealed class PasResponse
 
     public string ClaimResponseId => ClaimResponse.GetProperty("id").GetString()!;
 
+    /// <summary>The ClaimResponse's first identifier: what a provider system files the response under.</summary>
+    public (string? System, string? Value) TrackingIdentifier
+    {
+        get
+        {
+            if (!ClaimResponse.TryGetProperty("identifier", out var identifiers) || identifiers.GetArrayLength() == 0) return (null, null);
+            var first = identifiers[0];
+            return (first.TryGetProperty("system", out var system) ? system.GetString() : null,
+                first.TryGetProperty("value", out var value) ? value.GetString() : null);
+        }
+    }
+
+    /// <summary>For a subscription notification: the URL of the resource the notification is about.</summary>
+    public string? NotificationFocus
+    {
+        get
+        {
+            var status = JsonDocument.Parse(Body).RootElement.GetProperty("entry")[0].GetProperty("resource");
+            foreach (var parameter in status.GetProperty("parameter").EnumerateArray())
+            {
+                if (parameter.GetProperty("name").GetString() != "notification-event") continue;
+                foreach (var part in parameter.GetProperty("part").EnumerateArray())
+                    if (part.GetProperty("name").GetString() == "focus")
+                        return part.GetProperty("valueReference").GetProperty("reference").GetString();
+            }
+            return null;
+        }
+    }
+
     /// <summary>The id and status of a Subscription the service accepted.</summary>
     public (string? Id, string? Status) Subscription
     {
@@ -59,6 +88,23 @@ public sealed class PasResponse
     }
 
     public string BundleType => JsonDocument.Parse(Body).RootElement.GetProperty("type").GetString()!;
+
+    /// <summary>For a search result: how many matched.</summary>
+    public int Total => JsonDocument.Parse(Body).RootElement.GetProperty("total").GetInt32();
+
+    /// <summary>For a search result: the id and status of each Subscription found.</summary>
+    public IReadOnlyList<(string? Id, string? Status)> Subscriptions
+    {
+        get
+        {
+            var root = JsonDocument.Parse(Body).RootElement;
+            if (!root.TryGetProperty("entry", out var entries)) return [];
+            return [.. entries.EnumerateArray()
+                .Select(e => e.GetProperty("resource"))
+                .Where(r => r.GetProperty("resourceType").GetString() == "Subscription")
+                .Select(r => (r.GetProperty("id").GetString(), r.GetProperty("status").GetString()))];
+        }
+    }
 
     /// <summary>X12 306 review action: A1 certified, A2 not certified, A3 not required, A4 pended.</summary>
     public string ReviewActionCode => ReviewActionCodeOf(ReviewAction);

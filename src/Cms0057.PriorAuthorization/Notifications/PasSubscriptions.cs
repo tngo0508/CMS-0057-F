@@ -23,8 +23,11 @@ public sealed partial class PasSubscriptions(
 
     public const string Topic = "http://hl7.org/fhir/us/davinci-pas/SubscriptionTopic/PASSubscriptionTopic";
 
+    private const string PasSubscriptionProfile = "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-subscription";
     private const string Backport = "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/";
+    private const string BackportSubscriptionProfile = Backport + "backport-subscription";
     private const string FilterCriteriaUrl = Backport + "backport-filter-criteria";
+    private const string PayloadContentUrl = Backport + "backport-payload-content";
     private const string SubscriptionStatusProfile = Backport + "backport-subscription-status";
     private const string NotificationBundleProfile = Backport + "backport-subscription-notification";
 
@@ -58,6 +61,60 @@ public sealed partial class PasSubscriptions(
         subscription.Status = Subscription.SubscriptionStatus.Active;
         return subscription;
     }
+
+    /// <summary>
+    /// The subscriptions a provider system asks about, as br-provider does before it subscribes: those delivering
+    /// to the given endpoint (search parameter <c>url</c>) in one of the given statuses (<c>status</c>, comma
+    /// separated). Every subscription this service holds is active.
+    /// </summary>
+    public async Task<Bundle> Find(string? endpoint, string? statuses, string serverBase)
+    {
+        var wanted = statuses is null
+                     || statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Contains("active");
+        var query = db.Subscriptions.AsQueryable();
+        if (endpoint is not null)
+        {
+            var asStored = Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ? uri.ToString() : endpoint;
+            query = query.Where(s => s.Endpoint == asStored);
+        }
+        var found = wanted ? await query.OrderBy(s => s.CreatedAt).ToListAsync() : [];
+        return new Bundle
+        {
+            Type = Bundle.BundleType.Searchset,
+            Total = found.Count,
+            Entry =
+            [
+                .. found.Select(subscription => new Bundle.EntryComponent
+                {
+                    FullUrl = $"{serverBase}/Subscription/{subscription.Id}",
+                    Resource = AsResource(subscription),
+                    Search = new Bundle.SearchComponent { Mode = Bundle.SearchEntryMode.Match },
+                }),
+            ],
+        };
+    }
+
+    /// <summary>The stored subscription as the PAS Subscription resource the provider system sent.</summary>
+    private static Subscription AsResource(DecisionSubscription subscription) => new()
+    {
+        Id = subscription.Id.ToString(),
+        Meta = new Meta { Profile = [PasSubscriptionProfile, BackportSubscriptionProfile] },
+        Status = Subscription.SubscriptionStatus.Active,
+        Reason = "Tell the sending system when its prior authorization requests are decided",
+        CriteriaElement = new FhirString(Topic)
+        {
+            Extension = [new Extension(FilterCriteriaUrl, new FhirString($"org-identifier={subscription.OrganizationIdentifier}"))],
+        },
+        Channel = new Subscription.ChannelComponent
+        {
+            Type = Subscription.SubscriptionChannelType.RestHook,
+            Endpoint = subscription.Endpoint,
+            PayloadElement = new Code("application/fhir+json")
+            {
+                Extension = [new Extension(PayloadContentUrl, new Code("full-resource"))],
+            },
+        },
+    };
 
     /// <summary>
     /// Tells every provider system subscribed for the request's sending organization that the request has been

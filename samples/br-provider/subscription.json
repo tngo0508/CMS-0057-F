@@ -1,0 +1,30 @@
+{
+  "resourceType": "Subscription",
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-subscription",
+      "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-subscription"
+    ]
+  },
+  "status": "requested",
+  "reason": "Monitor PAS authorization notifications via REST hook",
+  "criteria": "http://hl7.org/fhir/us/davinci-pas/SubscriptionTopic/PASSubscriptionTopic",
+  "_criteria": {
+    "extension": [
+      {
+        "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-filter-criteria",
+        "valueString": "org-identifier=7718120064"
+      }
+    ]
+  },
+  "channel": {
+    "type": "rest-hook",
+    "endpoint": "http://provider.example.org/api/pas/notifications",
+    "payload": "application/fhir+json",
+    "_payload": {
+      "extension": [
+        { "url": "http://hl7.org/fhir/uv/subscriptions-backport/StructureDefinition/backport-payload-content", "valueCode": "full-resource" }
+      ]
+    }
+  }
+}

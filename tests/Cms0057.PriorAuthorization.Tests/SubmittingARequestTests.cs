@@ -17,6 +17,19 @@ public sealed class SubmittingARequestTests : IDisposable
     }
 
     [Fact]
+    public async Task The_response_carries_a_tracking_identifier_that_stays_the_same_for_the_request()
+    {
+        // br-provider files its copy of a ClaimResponse under identifier[0].value, and keeps none without one;
+        // as in br-payer the identifier is the payer's, under the trace number system, and it never changes.
+        var submitted = await _api.Submit(RequestBundles.ResidentialTreatment());
+        var inquired = await _api.Inquire(RequestBundles.Inquiry());
+
+        Assert.Equal("http://example.org/PATIENT_EVENT_TRACE_NUMBER", submitted.TrackingIdentifier.System);
+        Assert.False(string.IsNullOrEmpty(submitted.TrackingIdentifier.Value));
+        Assert.Equal(submitted.TrackingIdentifier, inquired.TrackingIdentifier);
+    }
+
+    [Fact]
     public async Task A_pended_residential_request_must_be_decided_within_24_hours_of_receipt()
     {
         var response = await _api.Submit(RequestBundles.ResidentialTreatment());

@@ -24,7 +24,8 @@ An EHR can ask, as a clinician signs an order, whether prior authorization is ne
 | `GET /.well-known/smart-configuration`, `POST /auth/token` | SMART App Launch 1.0 Backend Services | Where and how a provider system obtains an access token |
 | `POST /fhir/Claim/$submit` | PAS 2.2.1 | Submit a request; answered with a PAS response Bundle |
 | `POST /fhir/Claim/$inquire` | PAS 2.2.1 | Ask about the requesting provider's requests for a Member |
-| `POST /fhir/Subscription` | PAS 2.2.1 / Subscriptions Backport | Be notified when a request is decided |
+| `GET /fhir/ClaimResponse/{id}` | PAS 2.2.1 | Read one response by the id it carries (what a notification points at) |
+| `POST /fhir/Subscription`, `GET /fhir/Subscription?url=&status=` | PAS 2.2.1 / Subscriptions Backport | Be notified when a request is decided; look up the subscription already held |
 | `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order |
 | `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
@@ -43,8 +44,12 @@ profiles come from the published FHIR package `hl7.fhir.us.davinci-pas` 2.2.1 an
 names, fetched from `packages.fhir.org` on first start into `fhir-packages/` next to the project (about 40 MB,
 once; the folder is ignored by git and a copy of it is all an offline machine needs). Two things to know:
 
-- X12 owns the value sets several PAS elements bind to (service categories, place of service, modifiers), and
-  they are not in any package, so a code the validator cannot check is a warning in the log, never a rejection.
+- X12 owns the value sets several PAS elements bind to (service categories, certification types, the relationship
+  code beside the FHIR one on a Coverage), and they are not in any package. Where PAS binds to an X12 value set
+  the service cannot hold, a code from the X12 code system of that list is accepted on its system alone and a
+  code from any other system is not (`X12ValueSetsByCodeSystem`); that is also what lets the validator tell PAS's
+  X12 coding slices from the FHIR codings beside them. Any other code it cannot check is a warning in the log,
+  never a rejection.
 - Firely 3.6.0 cannot compile the PAS Claim profiles as published (their `careTeam` slicing discriminator ends in
   `ofType(boolean)`; [firely-validator-api#654](https://github.com/FirelyTeam/firely-validator-api/issues/654)).
   `PasProfiles` hands the validator those definitions with the `ofType()` dropped, which names the same element.
@@ -63,7 +68,9 @@ dotnet run --project src/Cms0057.PriorAuthorization
 The service listens on `http://localhost:5198`. The quickest tour is
 [`PriorAuthorization.http`](src/Cms0057.PriorAuthorization/PriorAuthorization.http): open it in Visual Studio or
 VS Code (REST Client) and send the requests top to bottom. A sample request Bundle is in
-[`samples/`](samples/residential-request.json). The Reviewer's page is at
+[`samples/`](samples/residential-request.json), and [`samples/br-provider/`](samples/br-provider/replay.sh) replays
+the calls Da Vinci's `br-provider` makes to a payer, in its payload shapes and with its token flow, against the
+running service. The Reviewer's page is at
 [http://localhost:5198/reviewer](http://localhost:5198/reviewer): it lists the Pended requests, soonest Decision
 Deadline first and Overdue ones marked, and approves or denies each one through the Reviewer endpoints. It is a
 single static page ([`wwwroot/reviewer.html`](src/Cms0057.PriorAuthorization/wwwroot/reviewer.html)) with no
@@ -102,8 +109,12 @@ password. Da Vinci's `br-payer` sample runs without authentication; here it is o
    every call to `/fhir/*` and `/cds-services/*`. A missing or expired token is answered 401, a token without the
    scope the operation needs 403, both with an OperationOutcome on `/fhir/*`.
 
-Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, a Decision Subscription
-`system/Subscription.write`; CRD needs only a token from a registered client. The metrics report under `/reports`
+Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, reading a ClaimResponse
+`system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write` and looking one up
+`system/Subscription.read`; CRD needs only a token from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
+and is answered in it; and it is granted the part of what it asked for that it is registered for, the token
+response's `scope` saying which, rather than refused outright (`invalid_scope` only when none of it can be granted).
+The metrics report under `/reports`
 is public, as the rule intends. The Reviewer endpoints under `/reviewer` are for the plan's own staff and are not
 covered by SMART Backend Services; their protection is a separate concern, tracked in the issues. Access tokens are
 signed with a key generated when the service starts, so they do not survive a restart.
@@ -124,7 +135,7 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 
 ## What is and is not built
 
-Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
+Built: PAS submit, inquire, ClaimResponse read, subscription notifications and subscription look-up; CRD order-sign; configurable rules with standard and
 expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
 health services); several items per request; updates, cancellations and renewals; approval and denial with the
 rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the public metrics
