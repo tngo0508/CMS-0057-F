@@ -1,4 +1,5 @@
 using Cms0057.PriorAuthorization;
+using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Pas;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,7 @@ builder.Services.AddDbContext<PriorAuthorizationDbContext>(options =>
 builder.Services.Configure<PriorAuthorizationOptions>(builder.Configuration.GetSection("PriorAuthorization"));
 builder.Services.AddSingleton<IAuthorizationRules, ResidentialTreatmentRules>();
 builder.Services.AddScoped<PriorAuthorizationRequests>();
+builder.Services.AddSingleton<CoverageRequirements>();
 
 var app = builder.Build();
 
@@ -49,6 +51,22 @@ app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationR
     catch (RequestRejected rejected)
     {
         return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
+    }
+});
+
+// CRD over CDS Hooks: what an EHR calls as a clinician signs an order.
+app.MapGet("/cds-services", () => Results.Json(CoverageRequirements.Discovery()));
+
+app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpRequest http, CoverageRequirements crd) =>
+{
+    try
+    {
+        using var reader = new StreamReader(http.Body);
+        return Results.Json(crd.OrderSign(await reader.ReadToEndAsync()));
+    }
+    catch (RequestRejected rejected)
+    {
+        return Results.Problem(rejected.Message, statusCode: StatusCodes.Status400BadRequest);
     }
 });
 

@@ -1,6 +1,4 @@
-using System.Text.Json;
 using Hl7.Fhir.Model;
-using Hl7.Fhir.Serialization;
 
 namespace Cms0057.PriorAuthorization.Pas;
 
@@ -26,10 +24,7 @@ public static class PasWire
     private const string IdentifierTypeSystem = "http://terminology.hl7.org/CodeSystem/v2-0203";
     private const string SubmissionIdentifierSystem = "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER";
 
-    private static readonly JsonSerializerOptions FhirJson =
-        new JsonSerializerOptions().ForFhir(ModelInfo.ModelInspector);
-
-    public static string Write(Resource resource) => JsonSerializer.Serialize(resource, FhirJson);
+    public static string Write(Resource resource) => FhirJson.Write(resource);
 
     /// <summary>Reads what the service needs from a PAS request Bundle.</summary>
     /// <exception cref="RequestRejected">The body is not a PAS request this service can process.</exception>
@@ -202,7 +197,7 @@ public static class PasWire
         _ => ("A4", "Pended"),
     };
 
-    private static Bundle ReadBundle(string json) => JsonSerializer.Deserialize<Bundle>(json, FhirJson)!;
+    private static Bundle ReadBundle(string json) => FhirJson.Read<Bundle>(json);
 
     private static string MemberIdentifier(Patient member) =>
         (member.Identifier.FirstOrDefault(IsMemberIdentifier) ?? member.Identifier[0]).Value;
@@ -226,18 +221,7 @@ public static class PasWire
         ],
     };
 
-    private static Bundle ParseRequest(string json)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<Bundle>(json, FhirJson)
-                   ?? throw new RequestRejected("Request bundle is required");
-        }
-        catch (Exception e) when (e is JsonException or DeserializationFailedException)
-        {
-            throw new RequestRejected("The request body is not a valid FHIR Bundle: " + e.Message);
-        }
-    }
+    private static Bundle ParseRequest(string json) => FhirJson.Read<Bundle>(json);
 
     private static Claim RequireClaim(Bundle bundle)
     {

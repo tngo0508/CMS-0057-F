@@ -39,6 +39,22 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
 
     public async Task<PasResponse> Inquire(string inquiryBundle) => await Post("/fhir/Claim/$inquire", inquiryBundle);
 
+    /// <summary>CDS Hooks discovery: the services this payer offers an EHR.</summary>
+    public async Task<string> DiscoverServices()
+    {
+        using var client = CreateClient();
+        return await client.GetStringAsync("/cds-services");
+    }
+
+    /// <summary>An EHR calls the order-sign service as a clinician signs an order.</summary>
+    public async Task<HookResponse> OrderSign(string hookRequest)
+    {
+        using var client = CreateClient();
+        using var content = new StringContent(hookRequest, Encoding.UTF8, "application/json");
+        using var response = await client.PostAsync("/cds-services/order-sign-crd", content);
+        return new HookResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     public async Task<IReadOnlyList<PendedRequest>> PendedRequests()
     {
         using var client = CreateClient();

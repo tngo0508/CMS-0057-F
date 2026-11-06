@@ -3,6 +3,56 @@
 # Run these top to bottom while the service is running (F5).
 # In Visual Studio, click "Send request" above each one; the response opens on the right.
 
+### 0. CRD: the EHR asks, as the clinician signs the order, whether prior authorization is needed.
+# Expect: 200 with one systemAction of type "update" carrying the ServiceRequest back with a
+# coverage-information extension whose "pa-needed" is "auth-needed" (change H0019 to H0004 for "no-auth").
+POST {{baseUrl}}/cds-services/order-sign-crd
+Content-Type: application/json
+
+{
+  "hookInstance": "d1577c69-dfbe-44ad-ba6d-3e05e953b2ea",
+  "fhirServer": "http://example.org/ehr/fhir",
+  "hook": "order-sign",
+  "context": {
+    "userId": "PractitionerRole/ReferringClinician",
+    "patientId": "MemberExample",
+    "draftOrders": {
+      "resourceType": "Bundle",
+      "type": "collection",
+      "entry": [
+        {
+          "resource": {
+            "resourceType": "ServiceRequest",
+            "id": "ResidentialOrder",
+            "status": "draft",
+            "intent": "order",
+            "code": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] },
+            "orderDetail": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "U1" }] }],
+            "subject": { "reference": "Patient/MemberExample" },
+            "authoredOn": "2026-11-06",
+            "insurance": [{ "reference": "Coverage/MemberCoverage" }]
+          }
+        }
+      ]
+    }
+  },
+  "prefetch": {
+    "patient": {
+      "resourceType": "Patient",
+      "id": "MemberExample",
+      "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "value": "90000001A" }]
+    },
+    "coverage": {
+      "resourceType": "Coverage",
+      "id": "MemberCoverage",
+      "status": "active",
+      "subscriberId": "90000001A",
+      "beneficiary": { "reference": "Patient/MemberExample" },
+      "payor": [{ "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" }]
+    }
+  }
+}
+
 ### 1. Provider submits a residential treatment request (H0019 + U1).
 # Expect: 200, and in the ClaimResponse item a review action code of "A4" (Pended)
 # with an administrationReferenceNumber starting "PEND-".
