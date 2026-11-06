@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Cms0057.PriorAuthorization/Cms0057.PriorAuthorization.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Cms0057.PriorAuthorization.Tests/Cms0057.PriorAuthorization.Tests.csproj" />
+  </Folder>
+</Solution>

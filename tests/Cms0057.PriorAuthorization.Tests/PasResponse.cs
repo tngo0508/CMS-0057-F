@@ -1,0 +1,91 @@
+using System.Net;
+using System.Text.Json;
+
+namespace Cms0057.PriorAuthorization.Tests;
+
+/// <summary>
+/// What a provider system reads from a PAS response: the HTTP status and, for the single requested item, the
+/// review action and what comes with it. Reads the raw JSON so the tests do not depend on the service's own model.
+/// </summary>
+public sealed class PasResponse
+{
+    private const string Pas = "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/";
+
+    private readonly JsonElement? _claimResponse;
+
+    public PasResponse(HttpStatusCode status, string body)
+    {
+        Status = status;
+        Body = body;
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement.Clone();
+        ResourceType = root.GetProperty("resourceType").GetString()!;
+        _claimResponse = FindClaimResponse(root);
+    }
+
+    public HttpStatusCode Status { get; }
+    public string Body { get; }
+    public string ResourceType { get; }
+
+    /// <summary>False when an inquiry found no request to report on.</summary>
+    public bool HasAnswer => _claimResponse is not null;
+
+    public string ClaimResponseId => ClaimResponse.GetProperty("id").GetString()!;
+
+    /// <summary>X12 306 review action: A1 certified, A2 not certified, A3 not required, A4 pended.</summary>
+    public string ReviewActionCode =>
+        Extension(ReviewAction, Pas + "extension-reviewActionCode")!.Value
+            .GetProperty("valueCodeableConcept").GetProperty("coding")[0].GetProperty("code").GetString()!;
+
+    public string? AuthorizationNumber =>
+        Extension(ReviewAction, "number")?.GetProperty("valueString").GetString();
+
+    public string? AuthorizationEnds =>
+        Extension(Item, Pas + "extension-itemPreAuthPeriod")?.GetProperty("valuePeriod").GetProperty("end").GetString();
+
+    public string? DenialReason =>
+        ClaimResponse.TryGetProperty("processNote", out var notes) ? notes[0].GetProperty("text").GetString() : null;
+
+    public string? ErrorDiagnostics =>
+        ResourceType == "OperationOutcome"
+            ? JsonDocument.Parse(Body).RootElement.GetProperty("issue")[0].GetProperty("diagnostics").GetString()
+            : null;
+
+    private JsonElement ClaimResponse =>
+        _claimResponse ?? throw new InvalidOperationException($"No ClaimResponse in the response: {Body}");
+
+    private JsonElement Item => ClaimResponse.GetProperty("item")[0];
+
+    private JsonElement ReviewAction =>
+        Extension(Item.GetProperty("adjudication")[0], Pas + "extension-reviewAction")
+        ?? throw new InvalidOperationException($"No review action in the response: {Body}");
+
+    private static JsonElement? Extension(JsonElement parent, string url)
+    {
+        if (!parent.TryGetProperty("extension", out var extensions)) return null;
+        foreach (var extension in extensions.EnumerateArray())
+            if (extension.GetProperty("url").GetString() == url) return extension;
+        return null;
+    }
+
+    /// <summary>Finds the ClaimResponse in a response Bundle, or in the Bundle a Parameters resource wraps.</summary>
+    private static JsonElement? FindClaimResponse(JsonElement resource)
+    {
+        switch (resource.GetProperty("resourceType").GetString())
+        {
+            case "ClaimResponse":
+                return resource;
+            case "Bundle" when resource.TryGetProperty("entry", out var entries):
+                foreach (var entry in entries.EnumerateArray())
+                    if (FindClaimResponse(entry.GetProperty("resource")) is { } found) return found;
+                return null;
+            case "Parameters" when resource.TryGetProperty("parameter", out var parameters):
+                foreach (var parameter in parameters.EnumerateArray())
+                    if (parameter.TryGetProperty("resource", out var inner) && FindClaimResponse(inner) is { } found)
+                        return found;
+                return null;
+            default:
+                return null;
+        }
+    }
+}
