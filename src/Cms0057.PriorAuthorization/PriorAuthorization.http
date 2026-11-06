@@ -158,11 +158,18 @@ Content-Type: application/fhir+json
 }
 
 ### 2. Reviewer lists the Pended requests.
+# A Reviewer would normally do steps 2 and 3 on the page at {{baseUrl}}/reviewer, which calls these same
+# endpoints; the raw requests are here to see the wire shapes.
 # Expect: the request from step 1, with serviceCodes ["H0019"], decisionDeadline 24 hours after receivedAt
 # and overdue false. (A request may carry several items; only the ones needing review are listed here.)
 GET {{baseUrl}}/reviewer/pended-requests
 
-### 3a. Reviewer approves the request from step 1.
+### 2b. The coded Denial Reasons the page offers in its picker.
+# Expect: 200 with the codes under PriorAuthorization:DenialReasonCodes in appsettings.json; [] until the plan
+# enters its licensed X12 886 codes, and then the page hides the picker.
+GET {{baseUrl}}/reviewer/denial-reason-codes
+
+### 3a. Reviewer approves the request from step 1 (or does it on the page at {{baseUrl}}/reviewer).
 # Expect: 204. Sending it a second time gives 409, because the request is already decided.
 # Remove the body's date to see the 400 for a missing end date.
 POST {{baseUrl}}/reviewer/requests/{{submit.response.body.$.entry[0].resource.id}}/approve
@@ -170,7 +177,7 @@ Content-Type: application/json
 
 { "authorizationEnds": "2026-12-06" }
 
-### 3b. OR the Reviewer denies it (send step 1 again first to get a fresh Pended request).
+### 3b. OR the Reviewer denies it, here or on the page (send step 1 again first to get a fresh Pended request).
 # Expect: 204. An empty reason gives 400. A "reasonCode" may be added once the plan has entered its licensed
 # X12 886 codes under PriorAuthorization:DenialReasonCodes in appsettings.json; an unknown code gives 400.
 POST {{baseUrl}}/reviewer/requests/{{submit.response.body.$.entry[0].resource.id}}/deny

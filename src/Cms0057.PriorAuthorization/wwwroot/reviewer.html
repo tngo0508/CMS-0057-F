@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pended requests</title>
+<style>
+  :root {
+    --paper: #f4f6f8;
+    --surface: #ffffff;
+    --ink: #16212b;
+    --muted: #5a6977;
+    --rule: #d9e0e6;
+    --approve: #1c6b4a;
+    --approve-ink: #ffffff;
+    --refuse: #a6192e;
+    --refuse-tint: #fbe8ea;
+    --expedited: #7a4e00;
+    --expedited-tint: #fff1cc;
+    --focus: #1f5fbf;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); color: var(--ink); }
+  body {
+    margin: 0;
+    font: 15px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; margin-bottom: 20px; }
+  h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+  .count { font-size: 17px; color: var(--muted); }
+  .refreshed { margin-left: auto; color: var(--muted); font-size: 14px; }
+  .intro { margin: 0 0 20px; color: var(--muted); max-width: 70ch; }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 6px; padding: 7px 14px;
+    border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 2px;
+  }
+  button[disabled] { opacity: 0.55; cursor: progress; }
+  .primary.approve { background: var(--approve); border-color: var(--approve); color: var(--approve-ink); }
+  .primary.deny { background: var(--refuse); border-color: var(--refuse); color: #fff; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--rule); }
+  th, td { text-align: left; vertical-align: top; padding: 14px 14px; border-top: 1px solid var(--rule); }
+  th { font-weight: 600; color: var(--muted); font-size: 14px; border-top: 0; }
+  tr.request { border-left: 4px solid transparent; }
+  tr.request.overdue { border-left-color: var(--refuse); background: var(--refuse-tint); }
+  tr.request.open td { border-bottom: 0; }
+  tr.decision td { border-top: 0; padding-top: 0; }
+  tr.request.overdue + tr.decision td { border-left: 4px solid var(--refuse); }
+
+  .member { font-weight: 600; }
+  .services { margin: 0; padding: 0; list-style: none; }
+  .tag {
+    display: inline-block; margin-top: 6px; padding: 1px 8px; border-radius: 999px;
+    background: var(--expedited-tint); color: var(--expedited); font-size: 13px; font-weight: 600;
+  }
+  .when { color: var(--muted); font-size: 14px; }
+  .deadline .remaining { font-size: 20px; font-weight: 600; line-height: 1.2; }
+  .overdue .deadline .remaining { color: var(--refuse); }
+  .deadline .marker { color: var(--refuse); font-weight: 700; }
+  td.actions { text-align: right; white-space: nowrap; }
+
+  .panel {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    padding: 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper);
+  }
+  .panel form { display: flex; flex-direction: column; gap: 10px; }
+  .panel h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  .panel label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+  .panel input, .panel textarea, .panel select {
+    font: inherit; color: var(--ink); padding: 7px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface);
+  }
+  .panel textarea { min-height: 84px; resize: vertical; }
+  .panel .row { display: flex; align-items: center; gap: 12px; }
+  .panel .hint { color: var(--muted); font-size: 13px; margin: 0; }
+  .message { margin: 0; font-size: 14px; min-height: 1.4em; }
+  .message.problem { color: var(--refuse); }
+  .message.done { color: var(--approve); }
+
+  .empty, .failed { padding: 40px 16px; text-align: center; color: var(--muted); background: var(--surface); border: 1px solid var(--rule); }
+  .failed { color: var(--refuse); }
+  .notice { margin: 0 0 16px; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); }
+  .notice.problem { border-color: var(--refuse); color: var(--refuse); }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 760px) {
+    th.when-col, td.when-col { display: none; }
+    .panel { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    tr.decision .panel { animation: open 160ms ease-out; }
+    @keyframes open { from { opacity: 0; transform: translateY(-4px); } }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Pended requests</h1>
+    <span class="count" id="count"></span>
+    <span class="refreshed" id="refreshed"></span>
+    <button type="button" id="refresh">Refresh</button>
+  </header>
+  <p class="intro">Prior Authorization Requests waiting for your decision, soonest Decision Deadline first.
+    Approve with the date the authorization ends, or deny with a Denial Reason the provider can act on.</p>
+
+  <p class="notice" id="notice" hidden></p>
+  <div id="list"></div>
+</main>
+
+<template id="panel-template">
+  <div class="panel">
+    <form class="approve-form">
+      <h2>Approve</h2>
+      <label>Authorization ends
+        <input type="date" name="authorizationEnds" required>
+      </label>
+      <div class="row">
+        <button type="submit" class="primary approve">Approve request</button>
+        <p class="message" aria-live="polite"></p>
+      </div>
+    </form>
+    <form class="deny-form">
+      <h2>Deny</h2>
+      <label>Denial Reason, in words the provider can act on
+        <textarea name="denialReason" required></textarea>
+      </label>
+      <label class="code-field" hidden>Denial Reason Code
+        <select name="reasonCode"><option value="">None</option></select>
+      </label>
+      <div class="row">
+        <button type="submit" class="primary deny">Deny request</button>
+        <p class="message" aria-live="polite"></p>
+      </div>
+    </form>
+  </div>
+</template>
+
+<script>
+(() => {
+  const list = document.getElementById('list');
+  const count = document.getElementById('count');
+  const refreshed = document.getElementById('refreshed');
+  const notice = document.getElementById('notice');
+  const panelTemplate = document.getElementById('panel-template');
+
+  const dateTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const localDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  let codes = [];
+  let requests = [];
+  let openId = null;
+
+  function timeLeft(deadline, now) {
+    const ms = deadline - now;
+    const minutes = Math.round(Math.abs(ms) / 60000);
+    const span = minutes < 60 ? `${minutes} min`
+      : minutes < 48 * 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min`
+      : `${Math.floor(minutes / 1440)} days ${Math.floor((minutes % 1440) / 60)} h`;
+    return ms >= 0 ? `${span} left` : `${span} past the deadline`;
+  }
+
+  function render() {
+    const now = new Date();
+    list.replaceChildren();
+    count.textContent = requests.length === 1 ? '1 request' : `${requests.length} requests`;
+    if (requests.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = 'Nothing is waiting for a decision.';
+      list.append(empty);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.innerHTML = `<thead><tr>
+      <th>Member</th><th>Requested services</th><th class="when-col">Received</th><th>Decision Deadline</th><th></th>
+    </tr></thead>`;
+    const body = document.createElement('tbody');
+
+    for (const r of requests) {
+      const deadline = new Date(r.decisionDeadline);
+      const row = document.createElement('tr');
+      row.className = 'request' + (r.overdue ? ' overdue' : '') + (r.id === openId ? ' open' : '');
+
+      const member = cell(row);
+      member.innerHTML = `<div class="member"></div>`;
+      member.firstChild.textContent = `Member ${r.memberIdentifier}`;
+      if (r.expedited) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = 'Expedited';
+        member.append(tag);
+      }
+
+      const services = cell(row);
+      const ul = document.createElement('ul');
+      ul.className = 'services';
+      for (const code of r.serviceCodes) {
+        const li = document.createElement('li');
+        li.textContent = code;
+        ul.append(li);
+      }
+      services.append(ul);
+
+      const received = cell(row, 'when-col when');
+      received.textContent = dateTime.format(new Date(r.receivedAt));
+
+      const due = cell(row, 'deadline');
+      const remaining = document.createElement('div');
+      remaining.className = 'remaining';
+      remaining.textContent = timeLeft(deadline, now);
+      const when = document.createElement('div');
+      when.className = 'when';
+      when.textContent = dateTime.format(deadline);
+      due.append(remaining, when);
+      if (r.overdue) {
+        const marker = document.createElement('div');
+        marker.className = 'marker';
+        marker.textContent = 'Overdue';
+        due.prepend(marker);
+      }
+
+      const actions = cell(row, 'actions');
+      const decide = document.createElement('button');
+      decide.type = 'button';
+      decide.textContent = r.id === openId ? 'Close' : 'Decide';
+      decide.setAttribute('aria-expanded', String(r.id === openId));
+      decide.addEventListener('click', () => { openId = openId === r.id ? null : r.id; render(); });
+      actions.append(decide);
+
+      body.append(row);
+      if (r.id === openId) body.append(decisionRow(r));
+    }
+    table.append(body);
+    list.append(table);
+  }
+
+  function cell(row, className) {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    row.append(td);
+    return td;
+  }
+
+  function decisionRow(r) {
+    const tr = document.createElement('tr');
+    tr.className = 'decision';
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.append(panelTemplate.content.cloneNode(true));
+    tr.append(td);
+
+    const approve = td.querySelector('.approve-form');
+    approve.elements.authorizationEnds.min = localDate(new Date());
+    approve.addEventListener('submit', e => {
+      e.preventDefault();
+      decide(approve, `/reviewer/requests/${r.id}/approve`,
+        { authorizationEnds: approve.elements.authorizationEnds.value || null }, 'Approved');
+    });
+
+    const deny = td.querySelector('.deny-form');
+    if (codes.length > 0) {
+      const field = deny.querySelector('.code-field');
+      field.hidden = false;
+      for (const c of codes) {
+        const option = document.createElement('option');
+        option.value = c.code;
+        option.textContent = `${c.code}: ${c.display}`;
+        field.querySelector('select').append(option);
+      }
+    }
+    deny.addEventListener('submit', e => {
+      e.preventDefault();
+      decide(deny, `/reviewer/requests/${r.id}/deny`, {
+        denialReason: deny.elements.denialReason.value,
+        reasonCode: deny.elements.reasonCode.value || null,
+      }, 'Denied');
+    });
+    return tr;
+  }
+
+  async function decide(form, url, body, doneWord) {
+    const message = form.querySelector('.message');
+    const button = form.querySelector('button[type=submit]');
+    message.className = 'message';
+    message.textContent = '';
+    button.disabled = true;
+    try {
+      const response = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (response.ok) {
+        openId = null;
+        showNotice(`${doneWord}. The provider system is being told.`, false);
+        await load();
+        return;
+      }
+      message.className = 'message problem';
+      message.textContent = await explain(response);
+    } catch (error) {
+      message.className = 'message problem';
+      message.textContent = `The service could not be reached (${error.message}).`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function explain(response) {
+    let detail = null;
+    try { detail = (await response.json()).detail; } catch { /* no problem details */ }
+    if (detail) return detail;
+    if (response.status === 404) return 'This request is no longer waiting for a decision.';
+    if (response.status === 409) return 'This request has already been decided.';
+    return `The service answered ${response.status} ${response.statusText}.`.trim();
+  }
+
+  function showNotice(text, problem) {
+    notice.hidden = false;
+    notice.className = 'notice' + (problem ? ' problem' : '');
+    notice.textContent = text;
+  }
+
+  async function load() {
+    try {
+      const response = await fetch('/reviewer/pended-requests', { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      requests = (await response.json())
+        .sort((a, b) => new Date(a.decisionDeadline) - new Date(b.decisionDeadline));
+      if (openId && !requests.some(r => r.id === openId)) openId = null;
+      refreshed.textContent = `Refreshed ${dateTime.format(new Date())}`;
+      render();
+    } catch (error) {
+      list.replaceChildren();
+      const failed = document.createElement('p');
+      failed.className = 'failed';
+      failed.textContent = `The list could not be loaded (${error.message}). Refresh to try again.`;
+      list.append(failed);
+    }
+  }
+
+  async function loadCodes() {
+    try {
+      const response = await fetch('/reviewer/denial-reason-codes');
+      if (response.ok) codes = await response.json();
+    } catch { codes = []; }
+  }
+
+  document.getElementById('refresh').addEventListener('click', () => { notice.hidden = true; load(); });
+  setInterval(() => { if (openId === null) load(); }, 60000);
+  loadCodes().then(load);
+})();
+</script>
+</body>
+</html>

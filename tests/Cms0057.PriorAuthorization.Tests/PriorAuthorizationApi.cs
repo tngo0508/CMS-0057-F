@@ -17,7 +17,7 @@ namespace Cms0057.PriorAuthorization.Tests;
 /// The running service as a provider system and a Reviewer see it: over HTTP only. Each instance has its own
 /// LocalDB database and its own clock, which starts at <see cref="Start"/>.
 /// </summary>
-public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
+public sealed class PriorAuthorizationApi(bool denialReasonCodes = true) : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Start = new(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
 
@@ -32,9 +32,12 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:PriorAuthorization", ConnectionString);
-        // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.
-        builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Code", DenialReasonCodes.NotMedicallyNecessary);
-        builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");
+        if (denialReasonCodes)
+        {
+            // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.
+            builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Code", DenialReasonCodes.NotMedicallyNecessary);
+            builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");
+        }
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -89,6 +92,21 @@ public sealed class PriorAuthorizationApi : WebApplicationFactory<Program>
         return response.StatusCode;
     }
 
+    /// <summary>The Reviewer opens the web page.</summary>
+    public async Task<(HttpStatusCode Status, string? ContentType, string Body)> ReviewerPage()
+    {
+        using var client = CreateClient();
+        using var response = await client.GetAsync("/reviewer");
+        return (response.StatusCode, response.Content.Headers.ContentType?.ToString(), await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>The coded Denial Reasons the page offers the Reviewer: the ones the plan has configured.</summary>
+    public async Task<IReadOnlyList<DenialReasonCodeOption>> ConfiguredDenialReasonCodes()
+    {
+        using var client = CreateClient();
+        return (await client.GetFromJsonAsync<List<DenialReasonCodeOption>>("/reviewer/denial-reason-codes"))!;
+    }
+
     /// <summary>The public prior authorization metrics for one calendar year.</summary>
     public async Task<MetricsReport> MetricsReport(int year)
     {
@@ -141,6 +159,9 @@ public sealed record MetricsReport(
     double? DeniedPercent,
     double? AverageHoursToDecision,
     double? MedianHoursToDecision);
+
+/// <summary>One coded Denial Reason as the page's picker shows it.</summary>
+public sealed record DenialReasonCodeOption(string Code, string Display);
 
 /// <summary>A Pended request as the Reviewer's list shows it; ServiceCodes are the ones awaiting the decision.</summary>
 public sealed record PendedRequest(

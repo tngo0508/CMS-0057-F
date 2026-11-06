@@ -5,6 +5,7 @@ using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
 using Cms0057.PriorAuthorization.Reports;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -118,6 +119,13 @@ app.MapGet("/reviewer/pended-requests", async (PriorAuthorizationRequests reques
         Overdue = r.IsOverdue(now),
     });
 });
+
+// The Reviewer's web page, and the coded Denial Reasons it offers (the ones the plan has configured).
+app.MapGet("/reviewer", (IWebHostEnvironment env) =>
+    Results.File(Path.Combine(env.WebRootPath, "reviewer.html"), "text/html; charset=utf-8"));
+
+app.MapGet("/reviewer/denial-reason-codes", (IOptions<PriorAuthorizationOptions> options) =>
+    options.Value.DenialReasonCodes.Select(c => new { c.Code, c.Display }));
 
 // The public prior authorization metrics for a calendar year (the rule has the plan post last year's by March 31).
 app.MapGet("/reports/prior-authorization-metrics", async (int? year, PriorAuthorizationMetrics metrics, TimeProvider clock) =>
