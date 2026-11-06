@@ -16,6 +16,7 @@ builder.Services.AddDbContext<PriorAuthorizationDbContext>(options =>
 builder.Services.Configure<PriorAuthorizationOptions>(builder.Configuration.GetSection("PriorAuthorization"));
 builder.Services.AddSingleton<IAuthorizationRules, ConfiguredAuthorizationRules>();
 builder.Services.AddScoped<PriorAuthorizationRequests>();
+builder.Services.AddSingleton<PasProfiles>();
 builder.Services.AddSingleton<CoverageRequirements>();
 builder.Services.AddScoped<PasSubscriptions>();
 builder.Services.AddScoped<PriorAuthorizationMetrics>();
@@ -35,6 +36,8 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
     if (app.Environment.IsDevelopment()) await SyntheticMembers.Seed(db);
 }
+// Fetch and compile the PAS profiles now rather than on the first provider request.
+app.Services.GetRequiredService<PasProfiles>().WarmUp();
 
 // SMART discovery: where a provider system or an EHR obtains an access token, and how.
 app.MapGet("/.well-known/smart-configuration", (HttpRequest http) => Results.Json(SmartConfiguration.For(ServerRoot(http))));
@@ -61,12 +64,12 @@ app.MapPost(SmartConfiguration.TokenPath, async (HttpRequest http, AccessTokens 
 });
 
 // The PAS operations a provider system calls, each with the SMART system scope it needs.
-Protected(app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+Protected(app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAuthorizationRequests requests, PasProfiles profiles) =>
 {
     try
     {
         using var reader = new StreamReader(http.Body);
-        var request = PasWire.ReadSubmission(await reader.ReadToEndAsync()) switch
+        var request = PasWire.ReadSubmission(await reader.ReadToEndAsync(), profiles) switch
         {
             Submission submission => await requests.Receive(submission),
             RequestUpdate update => await requests.Update(update),
@@ -77,22 +80,22 @@ Protected(app.MapPost("/fhir/Claim/$submit", async (HttpRequest http, PriorAutho
     }
     catch (RequestRejected rejected)
     {
-        return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
     }
 }), "system/Claim.write");
 
-Protected(app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+Protected(app.MapPost("/fhir/Claim/$inquire", async (HttpRequest http, PriorAuthorizationRequests requests, PasProfiles profiles) =>
 {
     try
     {
         using var reader = new StreamReader(http.Body);
-        var inquiry = PasWire.ReadInquiry(await reader.ReadToEndAsync());
+        var inquiry = PasWire.ReadInquiry(await reader.ReadToEndAsync(), profiles);
         var found = await requests.Find(inquiry);
         return Fhir(PasWire.InquiryResponse(found, ServerBase(http)));
     }
     catch (RequestRejected rejected)
     {
-        return Fhir(PasWire.Rejection(rejected.Message), StatusCodes.Status400BadRequest);
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
     }
 }), "system/Claim.read");
 

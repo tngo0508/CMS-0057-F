@@ -35,6 +35,20 @@ The wire shapes mirror Da Vinci's `br-payer` reference implementation so that it
 to this service; see [docs/adr/0001](docs/adr/0001-target-current-da-vinci-guide-versions.md) for the guide
 versions chosen and why. The vocabulary the code and tests use is in [GLOSSARY.md](GLOSSARY.md).
 
+Every request and inquiry Bundle is checked first by `br-payer`'s structural checks, then against the PAS 2.2.1
+profiles (`profile-pas-request-bundle`, `profile-pas-inquiry-request-bundle` and everything they pull in, US Core
+included) by the [Firely validator](https://github.com/FirelyTeam/firely-validator-api). A Bundle that breaks a
+profile is answered with a 400 `OperationOutcome` carrying the validator's findings, one issue per finding. The
+profiles come from the published FHIR package `hl7.fhir.us.davinci-pas` 2.2.1 and the dependencies its manifest
+names, fetched from `packages.fhir.org` on first start into `fhir-packages/` next to the project (about 40 MB,
+once; the folder is ignored by git and a copy of it is all an offline machine needs). Two things to know:
+
+- X12 owns the value sets several PAS elements bind to (service categories, place of service, modifiers), and
+  they are not in any package, so a code the validator cannot check is a warning in the log, never a rejection.
+- Firely 3.6.0 cannot compile the PAS Claim profiles as published (their `careTeam` slicing discriminator ends in
+  `ofType(boolean)`; [firely-validator-api#654](https://github.com/FirelyTeam/firely-validator-api/issues/654)).
+  `PasProfiles` hands the validator those definitions with the `ofType()` dropped, which names the same element.
+
 ## Running it
 
 Prerequisites: the .NET 10 SDK and SQL Server LocalDB (installed with Visual Studio's data workload, or from the
@@ -56,8 +70,9 @@ sign-in, as the rest of the proof of concept has none.
 
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
 connection string, the registered client systems (`Authentication`, below), the rules (`Requirements`: which
-billing codes need prior authorization and how long the plan has to decide, standard and expedited) and the plan's
-licensed Denial Reason codes. The residential codes (`H0019`
+billing codes need prior authorization and how long the plan has to decide, standard and expedited), the plan's
+licensed Denial Reason codes, and the profile validation (`ValidateProfiles`, on by default; `FhirPackageServer`
+and `FhirPackageFolder` say where the packages come from and where they are kept). The residential codes (`H0019`
 with `U1`/`U2`/`U3`) come from the DMC-ODS billing manual; the mental health codes under BHIN 26-030 are still to be
 confirmed against the 2026 manual.
 
@@ -110,21 +125,13 @@ written as the behaviour a provider system or a Reviewer would see, and read bes
 Built: PAS submit, inquire and subscription notifications; CRD order-sign; configurable rules with standard and
 expedited deadlines (24 hours for residential treatment; 5 business days / 72 hours for the BHIN 26-030 mental
 health services); several items per request; updates, cancellations and renewals; approval and denial with the
-<<<<<<< HEAD
 rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the public metrics
-report.
+report; SMART Backend Services authentication for the provider-facing endpoints; validation of requests and
+inquiries against the PAS profiles.
 
-Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, SMART on FHIR
-authentication, FHIR profile validation, and the rule's other three APIs (Patient Access, Provider Access,
-Payer-to-Payer). Several issues are questions for the agency rather than work items.
-=======
-rule's required content, including coded Denial Reasons; overdue tracking; the public metrics report; SMART
-Backend Services authentication for the provider-facing endpoints.
-
-Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, a Reviewer
-screen and the Reviewer endpoints' own authentication, FHIR profile validation, and the rule's other three APIs (Patient Access,
-Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work items.
->>>>>>> claude/exciting-kapitsa-096383
+Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR questionnaires, the Reviewer
+endpoints' own authentication, and the rule's other three APIs (Patient Access, Provider Access, Payer-to-Payer).
+Several issues are questions for the agency rather than work items.
 
 ## Sources and attribution
 
@@ -134,7 +141,11 @@ Provider Access, Payer-to-Payer). Several issues are questions for the agency ra
 - The request and inquiry Bundles used in the tests and samples are adapted from the examples in Da Vinci's
   [`br-payer`](https://github.com/HL7-DaVinci/br-payer) reference implementation (Apache License 2.0), cut down and
   re-coded for behavioral health services. The FHIR model and serialisation come from the
-  [Firely .NET SDK](https://github.com/FirelyTeam/firely-net-sdk).
+  [Firely .NET SDK](https://github.com/FirelyTeam/firely-net-sdk), the profile validation from the
+  [Firely validator](https://github.com/FirelyTeam/firely-validator-api) and
+  [Firely.Fhir.Packages](https://github.com/FirelyTeam/Firely.Fhir.Packages) (all BSD-3-Clause).
+- The FHIR packages the service fetches (Da Vinci PAS, US Core, HRex, the Subscriptions Backport, FHIR R4 and
+  the rest) are HL7's, published under CC0.
 
 ## Licence
 

@@ -110,6 +110,10 @@ Authorization: Bearer {{token.response.body.$.access_token}}
         "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
         "item": [
           {
+            "extension": [
+              { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-serviceItemRequestType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1525", "code": "HS", "display": "Health Services Review" }] } },
+              { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "I", "display": "Initial" }] } }
+            ],
             "sequence": 1,
             "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI", "display": "Substance Abuse" }] },
             "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] },
@@ -132,9 +136,12 @@ Authorization: Bearer {{token.response.body.$.access_token}}
       "resource": {
         "resourceType": "Coverage",
         "id": "MemberCoverage",
+        "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }],
         "status": "active",
         "subscriberId": "90000001A",
+        "subscriber": { "reference": "Patient/MemberExample" },
         "beneficiary": { "reference": "Patient/MemberExample" },
+        "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
         "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
       }
     },
@@ -149,7 +156,9 @@ Authorization: Bearer {{token.response.body.$.access_token}}
             "system": "http://example.org/fhir/sid/member-identifier",
             "value": "90000001A"
           }
-        ]
+        ],
+        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }],
+        "gender": "female"
       }
     }
   ]
@@ -256,9 +265,12 @@ Authorization: Bearer {{token.response.body.$.access_token}}
       "resource": {
         "resourceType": "Coverage",
         "id": "MemberCoverage",
+        "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }],
         "status": "active",
         "subscriberId": "90000001A",
+        "subscriber": { "reference": "Patient/MemberExample" },
         "beneficiary": { "reference": "Patient/MemberExample" },
+        "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
         "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
       }
     },
@@ -273,7 +285,9 @@ Authorization: Bearer {{token.response.body.$.access_token}}
             "system": "http://example.org/fhir/sid/member-identifier",
             "value": "90000001A"
           }
-        ]
+        ],
+        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }],
+        "gender": "female"
       }
     }
   ]
@@ -305,7 +319,7 @@ Authorization: Bearer {{token.response.body.$.access_token}}
         "id": "CancelRequest",
         "extension": [{ "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "3" }] } }],
         "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "cancel-{{$timestamp}}" }],
-        "related": [{ "claim": { "reference": "Claim/PriorRequest" } }],
+        "related": [{ "claim": { "reference": "Claim/PriorRequest" }, "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/ex-relatedclaimrelationship", "code": "prior" }] } }],
         "status": "active",
         "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
         "use": "preauthorization",
@@ -315,7 +329,7 @@ Authorization: Bearer {{token.response.body.$.access_token}}
         "provider": { "reference": "Organization/TreatmentProvider" },
         "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
         "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
-        "item": [{ "sequence": 1, "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI" }] }, "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] }, "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] } }]
+        "item": [{ "extension": [{ "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-serviceItemRequestType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1525", "code": "HS", "display": "Health Services Review" }] } }, { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "I", "display": "Initial" }] } }], "sequence": 1, "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI" }] }, "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] }, "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] } }]
       }
     },
     {
@@ -332,12 +346,13 @@ Authorization: Bearer {{token.response.body.$.access_token}}
         "insurer": { "reference": "Organization/BehavioralHealthPlan" },
         "provider": { "reference": "Organization/TreatmentProvider" },
         "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
-        "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }]
+        "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
+        "item": [{ "extension": [{ "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-serviceItemRequestType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1525", "code": "HS", "display": "Health Services Review" }] } }, { "url": "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "I", "display": "Initial" }] } }], "sequence": 1, "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI" }] }, "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "H0019" }] }, "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] } }]
       }
     },
     { "fullUrl": "http://example.org/fhir/Organization/TreatmentProvider", "resource": { "resourceType": "Organization", "id": "TreatmentProvider", "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "8189991234" }], "active": true, "name": "SYNTHETIC RECOVERY HOUSE" } },
     { "fullUrl": "http://example.org/fhir/Organization/BehavioralHealthPlan", "resource": { "resourceType": "Organization", "id": "BehavioralHealthPlan", "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }], "active": true, "name": "SYNTHETIC BEHAVIORAL HEALTH PLAN" } },
-    { "fullUrl": "http://example.org/fhir/Coverage/MemberCoverage", "resource": { "resourceType": "Coverage", "id": "MemberCoverage", "status": "active", "subscriberId": "90000001A", "beneficiary": { "reference": "Patient/MemberExample" }, "payor": [{ "reference": "Organization/BehavioralHealthPlan" }] } },
-    { "fullUrl": "http://example.org/fhir/Patient/MemberExample", "resource": { "resourceType": "Patient", "id": "MemberExample", "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }], "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }] } }
+    { "fullUrl": "http://example.org/fhir/Coverage/MemberCoverage", "resource": { "resourceType": "Coverage", "id": "MemberCoverage", "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }], "status": "active", "subscriberId": "90000001A", "subscriber": { "reference": "Patient/MemberExample" }, "beneficiary": { "reference": "Patient/MemberExample" }, "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] }, "payor": [{ "reference": "Organization/BehavioralHealthPlan" }] } },
+    { "fullUrl": "http://example.org/fhir/Patient/MemberExample", "resource": { "resourceType": "Patient", "id": "MemberExample", "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }], "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }], "gender": "female" } }
   ]
 }

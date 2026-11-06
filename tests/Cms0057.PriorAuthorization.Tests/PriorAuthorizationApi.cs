@@ -20,7 +20,11 @@ namespace Cms0057.PriorAuthorization.Tests;
 /// </summary>
 /// <param name="denialReasonCodes">Off only to show the page without a code picker; the plan normally has codes.</param>
 /// <param name="authentication">Off only to show the local-demo switch; every other test runs with it on.</param>
-public sealed class PriorAuthorizationApi(bool denialReasonCodes = true, bool authentication = true)
+/// <param name="validateProfiles">Off only to show the setting works; every other test runs with it on.</param>
+public sealed class PriorAuthorizationApi(
+    bool denialReasonCodes = true,
+    bool authentication = true,
+    bool validateProfiles = true)
     : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Start = new(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
@@ -45,6 +49,8 @@ public sealed class PriorAuthorizationApi(bool denialReasonCodes = true, bool au
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:PriorAuthorization", ConnectionString);
+        // Validation against the PAS profiles is on by default; a test switches it off to show the setting works.
+        if (!validateProfiles) builder.UseSetting("PriorAuthorization:ValidateProfiles", "false");
         if (denialReasonCodes)
         {
             // The X12 886 reason codes are licensed, so the service ships none; these stand in for the plan's own list.

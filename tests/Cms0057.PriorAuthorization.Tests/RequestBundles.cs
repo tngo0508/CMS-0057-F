@@ -2,7 +2,8 @@ namespace Cms0057.PriorAuthorization.Tests;
 
 /// <summary>
 /// Prior Authorization Request bundles as a provider system would send them. The shape is adapted from the
-/// request examples in Da Vinci's br-payer Reference Implementation (Apache-2.0), cut down to one item.
+/// request examples in Da Vinci's br-payer Reference Implementation (Apache-2.0), cut down to one item and made
+/// to conform to the PAS 2.2.1 profiles the service validates against.
 /// </summary>
 public static class RequestBundles
 {
@@ -14,8 +15,9 @@ public static class RequestBundles
         string memberIdentifier = KnownMember,
         string? bundleIdentifier = null,
         string claimUse = "preauthorization",
-        string priority = "normal") =>
-        ForItems([Residential], memberIdentifier, bundleIdentifier, claimUse, priority);
+        string priority = "normal",
+        bool withPatientGender = true) =>
+        ForItems([Residential], memberIdentifier, bundleIdentifier, claimUse, priority, withPatientGender: withPatientGender);
 
     /// <summary>Outpatient individual counseling: H0004 with the outpatient modifier U7.</summary>
     public static string OutpatientCounseling(string modifier = "U7") =>
@@ -38,6 +40,10 @@ public static class RequestBundles
 
     /// <summary>The NPI of the treatment provider that sends every request in these tests.</summary>
     public const string TreatmentProviderNpi = "8189991234";
+
+    private const string Pas = "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/";
+    private const string X12 = "https://codesystem.x12.org/005010/";
+    private const string Hcpcs = "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets";
 
     /// <summary>
     /// A provider system asking to be notified of decisions, built exactly as br-provider's
@@ -85,10 +91,13 @@ public static class RequestBundles
     /// A provider system asking what has become of a Member's requests. The shape follows br-payer's
     /// PASClaimInquiryBundleExample.
     /// </summary>
-    public static string Inquiry(string memberIdentifier = KnownMember, string providerNpi = TreatmentProviderNpi) => $$"""
+    public static string Inquiry(
+        string memberIdentifier = KnownMember,
+        string providerNpi = TreatmentProviderNpi,
+        bool withPatientGender = true) => $$"""
         {
           "resourceType": "Bundle",
-          "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-pas-inquiry-request-bundle"] },
+          "meta": { "profile": ["{{Pas}}profile-pas-inquiry-request-bundle"] },
           "identifier": { "system": "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER", "value": "{{Guid.NewGuid():N}}" },
           "type": "collection",
           "timestamp": "2026-11-06T12:00:00-08:00",
@@ -98,7 +107,7 @@ public static class RequestBundles
               "resource": {
                 "resourceType": "Claim",
                 "id": "Inquiry",
-                "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-claim-inquiry"] },
+                "meta": { "profile": ["{{Pas}}profile-claim-inquiry"] },
                 "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "111099" }],
                 "status": "active",
                 "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
@@ -111,52 +120,7 @@ public static class RequestBundles
                 "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }]
               }
             },
-            {
-              "fullUrl": "http://example.org/fhir/Organization/TreatmentProvider",
-              "resource": {
-                "resourceType": "Organization",
-                "id": "TreatmentProvider",
-                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "{{providerNpi}}" }],
-                "active": true,
-                "name": "SYNTHETIC RECOVERY HOUSE"
-              }
-            },
-            {
-              "fullUrl": "http://example.org/fhir/Organization/BehavioralHealthPlan",
-              "resource": {
-                "resourceType": "Organization",
-                "id": "BehavioralHealthPlan",
-                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }],
-                "active": true,
-                "name": "SYNTHETIC BEHAVIORAL HEALTH PLAN"
-              }
-            },
-            {
-              "fullUrl": "http://example.org/fhir/Coverage/MemberCoverage",
-              "resource": {
-                "resourceType": "Coverage",
-                "id": "MemberCoverage",
-                "status": "active",
-                "subscriberId": "{{memberIdentifier}}",
-                "beneficiary": { "reference": "Patient/MemberExample" },
-                "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
-              }
-            },
-            {
-              "fullUrl": "http://example.org/fhir/Patient/MemberExample",
-              "resource": {
-                "resourceType": "Patient",
-                "id": "MemberExample",
-                "identifier": [
-                  {
-                    "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] },
-                    "system": "http://example.org/fhir/sid/member-identifier",
-                    "value": "{{memberIdentifier}}"
-                  }
-                ],
-                "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }]
-              }
-            }
+            {{Participants(memberIdentifier, providerNpi, withPatientGender)}}
           ]
         }
         """;
@@ -192,29 +156,31 @@ public static class RequestBundles
         bool cancelWhole = false,
         bool[]? changed = null,
         bool[]? cancelled = null,
-        bool renewal = false)
+        bool renewal = false,
+        bool withPatientGender = true)
     {
-        const string pas = "http://hl7.org/fhir/us/davinci-pas/StructureDefinition/";
         bundleIdentifier ??= Guid.NewGuid().ToString("N");
+        var isUpdate = priorBundleIdentifier is not null;
 
         var claimExtensions = cancelWhole
             ? $$"""
-              "extension": [{ "url": "{{pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "3" }] } }],
+              "extension": [{ "url": "{{Pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "{{X12}}1322", "code": "3", "display": "Cancel" }] } }],
               """
             : "";
-        var related = priorBundleIdentifier is null
-            ? ""
-            : """
-              "related": [{ "claim": { "reference": "Claim/PriorRequest" } }],
-              """;
-        var priorClaimEntry = priorBundleIdentifier is null
-            ? ""
-            : $$"""
+        var related = isUpdate
+            ? """
+              "related": [{ "claim": { "reference": "Claim/PriorRequest" }, "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/ex-relatedclaimrelationship", "code": "prior" }] } }],
+              """
+            : "";
+        // The prior Claim, as it was sent: the update profile wants it in the Bundle, conforming to profile-claim.
+        var priorClaimEntry = isUpdate
+            ? $$"""
               {
                 "fullUrl": "http://example.org/fhir/Claim/PriorRequest",
                 "resource": {
                   "resourceType": "Claim",
                   "id": "PriorRequest",
+                  "meta": { "profile": ["{{Pas}}profile-claim"] },
                   "identifier": [{ "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "{{priorBundleIdentifier}}" }],
                   "status": "active",
                   "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional" }] },
@@ -224,43 +190,26 @@ public static class RequestBundles
                   "insurer": { "reference": "Organization/BehavioralHealthPlan" },
                   "provider": { "reference": "Organization/TreatmentProvider" },
                   "priority": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/processpriority", "code": "normal" }] },
-                  "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }]
+                  "insurance": [{ "sequence": 1, "focal": true, "coverage": { "reference": "Coverage/MemberCoverage" } }],
+                  "item": [
+                    {{Item(Residential, 1)}}
+                  ]
                 }
               },
-              """;
+              """
+            : "";
 
-        var items = string.Join(",\n", services.Select((service, index) =>
-        {
-            var extensions = new List<string>
-            {
-                $$"""{ "url": "{{pas}}extension-itemTraceNumber", "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "{{1122334 + index}}" } }""",
-            };
-            if (changed?[index] == true)
-                extensions.Add($$"""{ "url": "{{pas}}extension-infoChanged", "valueCode": "changed" }""");
-            if (renewal)
-                extensions.Add($$"""{ "url": "{{pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "https://codesystem.x12.org/005010/1322", "code": "R" }] } }""");
-            var modifierExtensions = cancelled?[index] == true
-                ? $$"""
-                  "modifierExtension": [{ "url": "{{pas}}modifierextension-infoCancelled", "valueBoolean": true }],
-                  """
-                : "";
-            return $$"""
-                  {
-                    "extension": [ {{string.Join(", ", extensions)}} ],
-                    {{modifierExtensions}}
-                    "sequence": {{index + 1}},
-                    "category": { "coding": [{ "system": "https://codesystem.x12.org/005010/1365", "code": "AI", "display": "Substance Abuse" }] },
-                    "productOrService": { "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Code}}" }] },
-                    "modifier": [{ "coding": [{ "system": "http://www.cms.gov/Medicare/Coding/HCPCSReleaseCodeSets", "code": "{{service.Modifier}}" }] }],
-                    "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] }
-                  }
-                  """;
-        }));
+        var items = string.Join(",\n", services.Select((service, index) => Item(
+            service,
+            sequence: index + 1,
+            certificationType: renewal ? "R" : "I",
+            changed: changed?[index] == true,
+            cancelled: cancelled?[index] == true)));
 
         return $$"""
         {
           "resourceType": "Bundle",
-          "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-pas-request-bundle"] },
+          "meta": { "profile": ["{{Pas}}profile-pas-request-bundle"] },
           "identifier": { "system": "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER", "value": "{{bundleIdentifier}}" },
           "type": "collection",
           "timestamp": "2026-11-06T09:59:00-08:00",
@@ -270,7 +219,7 @@ public static class RequestBundles
               "resource": {
                 "resourceType": "Claim",
                 "id": "ResidentialRequest",
-                "meta": { "profile": ["http://hl7.org/fhir/us/davinci-pas/StructureDefinition/profile-claim"] },
+                "meta": { "profile": ["{{Pas}}{{(isUpdate ? "profile-claim-update" : "profile-claim")}}"] },
                 {{claimExtensions}}
                 "identifier": [
                   { "system": "http://example.org/PATIENT_EVENT_TRACE_NUMBER", "value": "{{bundleIdentifier}}" }
@@ -291,12 +240,65 @@ public static class RequestBundles
               }
             },
             {{priorClaimEntry}}
+            {{Participants(memberIdentifier, TreatmentProviderNpi, withPatientGender)}}
+          ]
+        }
+        """;
+    }
+
+    /// <summary>
+    /// One Claim.item as PAS shapes it. Every item says what kind of review it asks for (X12 1525, HS: Health
+    /// Services Review) and what kind of certification (X12 1322: I initial, R renewal), and carries the
+    /// provider's trace number.
+    /// </summary>
+    private static string Item(
+        (string Code, string Modifier) service,
+        int sequence,
+        string certificationType = "I",
+        bool changed = false,
+        bool cancelled = false)
+    {
+        var extensions = new List<string>
+        {
+            $$"""{ "url": "{{Pas}}extension-serviceItemRequestType", "valueCodeableConcept": { "coding": [{ "system": "{{X12}}1525", "code": "HS", "display": "Health Services Review" }] } }""",
+            $$"""{ "url": "{{Pas}}extension-certificationType", "valueCodeableConcept": { "coding": [{ "system": "{{X12}}1322", "code": "{{certificationType}}" }] } }""",
+            $$"""{ "url": "{{Pas}}extension-itemTraceNumber", "valueIdentifier": { "system": "http://example.org/ITEM_TRACE_NUMBER", "value": "{{1122333 + sequence}}" } }""",
+        };
+        if (changed)
+            extensions.Add($$"""{ "url": "{{Pas}}extension-infoChanged", "valueCode": "changed" }""");
+        var modifierExtensions = cancelled
+            ? $$"""
+              "modifierExtension": [{ "url": "{{Pas}}modifierextension-infoCancelled", "valueBoolean": true }],
+              """
+            : "";
+        return $$"""
+              {
+                "extension": [ {{string.Join(", ", extensions)}} ],
+                {{modifierExtensions}}
+                "sequence": {{sequence}},
+                "category": { "coding": [{ "system": "{{X12}}1365", "code": "AI", "display": "Substance Abuse" }] },
+                "productOrService": { "coding": [{ "system": "{{Hcpcs}}", "code": "{{service.Code}}" }] },
+                "modifier": [{ "coding": [{ "system": "{{Hcpcs}}", "code": "{{service.Modifier}}" }] }],
+                "locationCodeableConcept": { "coding": [{ "system": "https://www.cms.gov/Medicare/Coding/place-of-service-codes/Place_of_Service_Code_Set", "code": "55" }] }
+              }
+              """;
+    }
+
+    /// <summary>
+    /// The entries every request carries besides the Claim: the sending provider, the plan, the Member's Coverage
+    /// and the Member, shaped to PAS's requestor, insurer, coverage and beneficiary profiles (US Core underneath:
+    /// hence the Patient's gender and the Coverage's member identifier and relationship). PAS would also like the
+    /// X12 relationship code (1069, "18" for self) beside the FHIR one, but the validator cannot tell that coding
+    /// slice apart without X12's licensed value set and counts every coding against it; so the Coverage carries
+    /// the FHIR code alone and names the subscriber, as PAS's self-beneficiary rule then asks.
+    /// </summary>
+    private static string Participants(string memberIdentifier, string providerNpi, bool withPatientGender) => $$"""
             {
               "fullUrl": "http://example.org/fhir/Organization/TreatmentProvider",
               "resource": {
                 "resourceType": "Organization",
                 "id": "TreatmentProvider",
-                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "8189991234" }],
+                "identifier": [{ "system": "http://hl7.org/fhir/sid/us-npi", "value": "{{providerNpi}}" }],
                 "active": true,
                 "name": "SYNTHETIC RECOVERY HOUSE"
               }
@@ -316,9 +318,18 @@ public static class RequestBundles
               "resource": {
                 "resourceType": "Coverage",
                 "id": "MemberCoverage",
+                "identifier": [
+                  {
+                    "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] },
+                    "system": "http://example.org/fhir/sid/member-identifier",
+                    "value": "{{memberIdentifier}}"
+                  }
+                ],
                 "status": "active",
                 "subscriberId": "{{memberIdentifier}}",
+                "subscriber": { "reference": "Patient/MemberExample" },
                 "beneficiary": { "reference": "Patient/MemberExample" },
+                "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
                 "payor": [{ "reference": "Organization/BehavioralHealthPlan" }]
               }
             },
@@ -334,11 +345,8 @@ public static class RequestBundles
                     "value": "{{memberIdentifier}}"
                   }
                 ],
-                "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }]
+                "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }]{{(withPatientGender ? ", \"gender\": \"female\"" : "")}}
               }
             }
-          ]
-        }
-        """;
-    }
+    """;
 }

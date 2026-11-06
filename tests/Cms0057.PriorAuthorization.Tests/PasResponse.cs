@@ -98,6 +98,25 @@ public sealed class PasResponse
             ? JsonDocument.Parse(Body).RootElement.GetProperty("issue")[0].GetProperty("diagnostics").GetString()
             : null;
 
+    /// <summary>Every issue of an OperationOutcome, each as its location (when given) and its diagnostics.</summary>
+    public IReadOnlyList<string> ErrorIssues
+    {
+        get
+        {
+            if (ResourceType != "OperationOutcome") return [];
+            var issues = new List<string>();
+            foreach (var issue in JsonDocument.Parse(Body).RootElement.GetProperty("issue").EnumerateArray())
+            {
+                var location = issue.TryGetProperty("expression", out var expressions)
+                    ? string.Join(", ", expressions.EnumerateArray().Select(e => e.GetString()))
+                    : null;
+                var diagnostics = issue.TryGetProperty("diagnostics", out var d) ? d.GetString() : null;
+                issues.Add(location is null ? diagnostics ?? "" : $"{location}: {diagnostics}");
+            }
+            return issues;
+        }
+    }
+
     private JsonElement ClaimResponse =>
         _claimResponse ?? throw new InvalidOperationException($"No ClaimResponse in the response: {Body}");
 

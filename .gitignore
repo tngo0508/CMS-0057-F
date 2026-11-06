@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# FHIR packages the service fetches on first start (see PriorAuthorization:FhirPackageFolder)
+fhir-packages/

@@ -86,7 +86,7 @@ public sealed class NotifyingTheProviderTests : IDisposable
     [Fact]
     public async Task A_provider_that_did_not_send_the_request_is_not_told()
     {
-        await _api.Subscribe(RequestBundles.Subscription(orgIdentifier: "1112223334", notificationUrl: Endpoint));
+        await _api.Subscribe(RequestBundles.Subscription(orgIdentifier: "1112223338", notificationUrl: Endpoint));
         var pended = (await _api.Submit(RequestBundles.ResidentialTreatment())).ClaimResponseId;
 
         await _api.Approve(pended, authorizationEnds: "2026-12-06");

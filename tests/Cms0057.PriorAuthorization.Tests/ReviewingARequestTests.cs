@@ -36,7 +36,7 @@ public sealed class ReviewingARequestTests : IAsyncLifetime
     [Fact]
     public async Task A_provider_that_did_not_send_the_request_cannot_see_it()
     {
-        var answer = await _api.Inquire(RequestBundles.Inquiry(providerNpi: "1112223334"));
+        var answer = await _api.Inquire(RequestBundles.Inquiry(providerNpi: "1112223338"));
 
         Assert.False(answer.HasAnswer);
     }

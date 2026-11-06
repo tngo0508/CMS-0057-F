@@ -39,11 +39,18 @@ public static class PasWire
     /// makes it a cancellation.
     /// </summary>
     /// <exception cref="RequestRejected">The body is not a PAS request this service can process.</exception>
-    public static PasSubmission ReadSubmission(string requestBundle)
+    public static PasSubmission ReadSubmission(string requestBundle, PasProfiles profiles)
     {
         var bundle = ParseRequest(requestBundle);
         var claim = RequireClaim(bundle);
+        var submission = ReadSubmission(bundle, claim, requestBundle);
+        // Only after the structural checks: the PAS request Bundle profile and all it pulls in.
+        profiles.Require(bundle, PasProfiles.RequestBundle);
+        return submission;
+    }
 
+    private static PasSubmission ReadSubmission(Bundle bundle, Claim claim, string requestBundle)
+    {
         if (claim.Related.FirstOrDefault()?.Claim is { Reference: not null } priorReference)
         {
             var prior = TryResolve<Claim>(bundle, priorReference)
@@ -110,7 +117,7 @@ public static class PasWire
 
     /// <summary>Reads what the service needs from a PAS inquiry Bundle.</summary>
     /// <exception cref="RequestRejected">The body is not a PAS inquiry this service can process.</exception>
-    public static Inquiry ReadInquiry(string inquiryBundle)
+    public static Inquiry ReadInquiry(string inquiryBundle, PasProfiles profiles)
     {
         var bundle = ParseRequest(inquiryBundle);
         var claim = RequireClaim(bundle);
@@ -130,6 +137,8 @@ public static class PasWire
             .Select(e => (e.Value as FhirString)?.Value)
             .OfType<string>();
 
+        // Only after the structural checks: the PAS inquiry Bundle profile and all it pulls in.
+        profiles.Require(bundle, PasProfiles.InquiryRequestBundle);
         return new Inquiry(MemberIdentifier(member), ProviderIdentifier(bundle, claim.Provider), [.. numbers]);
     }
 
@@ -288,6 +297,14 @@ public static class PasWire
 
     private static bool IsMemberIdentifier(Identifier identifier) =>
         identifier.Type?.Coding.Any(c => c.System == IdentifierTypeSystem && c.Code == "MB") == true;
+
+    /// <summary>
+    /// Writes the OperationOutcome that tells a provider system why its request was rejected: the validator's
+    /// findings when a profile was broken, otherwise the one reason.
+    /// </summary>
+    public static OperationOutcome Rejection(RequestRejected rejected) => rejected is ProfileViolation violation
+        ? new OperationOutcome { Issue = [.. violation.Issues] }
+        : Rejection(rejected.Message);
 
     /// <summary>Writes the OperationOutcome that tells a provider system why its request was rejected.</summary>
     public static OperationOutcome Rejection(string reason) => new()
