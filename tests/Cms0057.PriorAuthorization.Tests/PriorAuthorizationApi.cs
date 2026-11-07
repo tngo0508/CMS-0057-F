@@ -50,6 +50,12 @@ public sealed class PriorAuthorizationApi(
 
     public const string EhrJwksUrl = "https://ehr.example.test/.well-known/jwks.json";
 
+    /// <summary>
+    /// The agency's Patient Access API, which serves Members their own prior authorization information and reads it
+    /// from here; registered as a system that may read ExplanationOfBenefit and nothing else.
+    /// </summary>
+    public RegisteredSystem PatientAccessApi { get; } = new("synthetic-patient-access-api", "system/ExplanationOfBenefit.read");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -68,6 +74,7 @@ public sealed class PriorAuthorizationApi(
         builder.UseSetting("Authentication:Clients:1:ClientId", Ehr.ClientId);
         builder.UseSetting("Authentication:Clients:1:Scopes", Ehr.Scopes);
         builder.UseSetting("Authentication:Clients:1:JwksUri", EhrJwksUrl);
+        Register(builder, 2, PatientAccessApi);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -159,6 +166,25 @@ public sealed class PriorAuthorizationApi(
         using var content = new StringContent(body, Encoding.UTF8, "application/fhir+json");
         using var response = await client.PostAsync(path, content);
         return new DtrResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// The Patient Access API asks for a Member's prior authorization information: a search of ExplanationOfBenefit
+    /// with the given query string (<c>patient=…</c> and whatever else).
+    /// </summary>
+    public async Task<PatientAccessResponse> PriorAuthorizations(string query, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(PatientAccessApi));
+        using var response = await client.GetAsync("/fhir/ExplanationOfBenefit?" + query);
+        return new PatientAccessResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>The Patient Access API reads one prior authorization by the id a search gave it.</summary>
+    public async Task<PatientAccessResponse> PriorAuthorization(string id, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(PatientAccessApi));
+        using var response = await client.GetAsync("/fhir/ExplanationOfBenefit/" + id);
+        return new PatientAccessResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
     /// <summary>

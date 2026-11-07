@@ -25,11 +25,11 @@ public static class PasWire
     private const string ClaimResponseProfile = PasBase + "profile-claimresponse";
     private const string ReviewActionSystem = "https://codesystem.x12.org/005010/306";
     private const string ReviewDecisionReasonSystem = "https://codesystem.x12.org/external/886";
-    private const string AdjudicationSystem = "http://terminology.hl7.org/CodeSystem/adjudication";
+    public const string AdjudicationSystem = "http://terminology.hl7.org/CodeSystem/adjudication";
     private const string IdentifierTypeSystem = "http://terminology.hl7.org/CodeSystem/v2-0203";
     private const string SubmissionIdentifierSystem = "http://example.org/SUBMITTER_TRANSACTION_IDENTIFIER";
     /// <summary>The system br-payer puts its ClaimResponse tracking identifier under; provider systems file the response by it.</summary>
-    private const string TrackingIdentifierSystem = "http://example.org/PATIENT_EVENT_TRACE_NUMBER";
+    public const string TrackingIdentifierSystem = "http://example.org/PATIENT_EVENT_TRACE_NUMBER";
     private const string NpiSystem = "http://hl7.org/fhir/sid/us-npi";
 
     public static string Write(Resource resource) => FhirJson.Write(resource);
@@ -199,44 +199,13 @@ public static class PasWire
             if (state == RequestState.Pended)
                 item.Extension.Add(new Extension(AdministrationReferenceNumberUrl, new FhirString(request.ReferenceNumber)));
 
-            var (code, display) = ReviewAction(state);
-            var reviewAction = new Extension { Url = ReviewActionUrl };
-            reviewAction.Extension.Add(new Extension(
-                ReviewActionCodeUrl,
-                new CodeableConcept(ReviewActionSystem, code, display, null)));
-
-            if (state == RequestState.Approved)
-            {
-                // As in br-payer: the Authorization Number rides on the review action, the period on the item.
-                reviewAction.Extension.Add(new Extension("number", new FhirString(request.AuthorizationNumber)));
-                var decidedOn = DateOnly.FromDateTime(request.DecidedAt!.Value.UtcDateTime);
-                item.Extension.Add(new Extension(ItemPreAuthIssueDateUrl, new Date(decidedOn.ToString("yyyy-MM-dd"))));
-                item.Extension.Add(new Extension(ItemPreAuthPeriodUrl, new Period
-                {
-                    Start = decidedOn.ToString("yyyy-MM-dd"),
-                    End = request.AuthorizationEnds!.Value.ToString("yyyy-MM-dd"),
-                }));
-            }
-
-            if (state == RequestState.Denied)
-            {
-                // PAS puts the reason on the review action: a coded X12 886 reason when the plan gave one, and the
-                // Reviewer's words as the concept's text either way.
-                var reason = new CodeableConcept { Text = request.DenialReason };
-                if (request.DenialReasonCode is not null)
-                    reason.Coding.Add(new Coding(ReviewDecisionReasonSystem, request.DenialReasonCode, request.DenialReasonDisplay));
-                reviewAction.Extension.Add(new Extension("reasonCode", reason));
-            }
+            var reviewAction = ReviewAction(request, state, ReviewActionUrl, ReviewActionCodeUrl);
+            // As in br-payer: the Authorization Number rides on the review action, the period on the item.
+            item.Extension.AddRange(AuthorizationPeriod(request, state));
 
             // A process note says in words why an item is not certified, where any ClaimResponse reader will find
             // it; that placement is ours.
-            var note = state switch
-            {
-                RequestState.Denied => request.DenialReason,
-                RequestState.Cancelled => "Cancelled at the provider's request",
-                _ => null,
-            };
-            if (note is not null)
+            if (ProcessNote(request, state) is { } note)
             {
                 var number = claimResponse.ProcessNote.FirstOrDefault(n => n.Text == note)?.Number
                              ?? AddNote(claimResponse, note);
@@ -273,6 +242,62 @@ public static class PasWire
         claimResponse.ProcessNote.Add(new ClaimResponse.NoteComponent { Number = number, Type = NoteType.Display, Text = text });
         return number;
     }
+
+    /// <summary>
+    /// The review action for a request, or one of its items, in the given <paramref name="state"/>: the X12 306
+    /// code; the Authorization Number when approved; and when denied the reason, a coded X12 886 reason when the
+    /// plan gave one and the Reviewer's words as the concept's text either way. PAS and PDex define the extension
+    /// alike under their own URLs, so the caller names them.
+    /// </summary>
+    public static Extension ReviewAction(PriorAuthorizationRequest request, RequestState state, string extensionUrl, string codeUrl)
+    {
+        var (code, display) = ReviewAction(state);
+        var reviewAction = new Extension { Url = extensionUrl };
+        reviewAction.Extension.Add(new Extension(codeUrl, new CodeableConcept(ReviewActionSystem, code, display, null)));
+
+        if (state == RequestState.Approved)
+            reviewAction.Extension.Add(new Extension("number", new FhirString(request.AuthorizationNumber)));
+
+        if (state == RequestState.Denied)
+        {
+            var reason = new CodeableConcept { Text = request.DenialReason };
+            if (request.DenialReasonCode is not null)
+                reason.Coding.Add(new Coding(ReviewDecisionReasonSystem, request.DenialReasonCode, request.DenialReasonDisplay));
+            reviewAction.Extension.Add(new Extension("reasonCode", reason));
+        }
+        return reviewAction;
+    }
+
+    /// <summary>
+    /// For an approved item: the PAS item extensions saying when the authorization was issued and the period it
+    /// covers, from the day of the decision to the end date the Reviewer gave. Nothing for any other state.
+    /// </summary>
+    public static IEnumerable<Extension> AuthorizationPeriod(PriorAuthorizationRequest request, RequestState state)
+    {
+        if (state != RequestState.Approved) yield break;
+        var decidedOn = DateOnly.FromDateTime(request.DecidedAt!.Value.UtcDateTime);
+        yield return new Extension(ItemPreAuthIssueDateUrl, new Date(decidedOn.ToString("yyyy-MM-dd")));
+        yield return new Extension(ItemPreAuthPeriodUrl, new Period
+        {
+            Start = decidedOn.ToString("yyyy-MM-dd"),
+            End = request.AuthorizationEnds!.Value.ToString("yyyy-MM-dd"),
+        });
+    }
+
+    /// <summary>What a process note says about an item that is not certified; null when there is nothing to say.</summary>
+    public static string? ProcessNote(PriorAuthorizationRequest request, RequestState state) => state switch
+    {
+        RequestState.Denied => request.DenialReason,
+        RequestState.Cancelled => "Cancelled at the provider's request",
+        _ => null,
+    };
+
+    /// <summary>The Claim a request was sent as, read from the Bundle kept with the request.</summary>
+    public static Claim ClaimOf(PriorAuthorizationRequest request) => (Claim)ReadBundle(request.RequestBundle).Entry[0].Resource;
+
+    /// <summary>The resource a reference in the kept request Bundle points at, or null when it is not in the Bundle.</summary>
+    public static T? InRequestBundle<T>(PriorAuthorizationRequest request, ResourceReference? reference) where T : Resource =>
+        reference is null ? null : TryResolve<T>(ReadBundle(request.RequestBundle), reference);
 
     /// <summary>X12 306 has no code for a cancellation; as in br-payer, a cancelled item is Not Certified.</summary>
     private static (string Code, string Display) ReviewAction(RequestState state) => state switch

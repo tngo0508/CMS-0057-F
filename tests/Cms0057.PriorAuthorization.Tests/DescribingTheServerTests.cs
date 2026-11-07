@@ -41,6 +41,18 @@ public sealed class DescribingTheServerTests : IDisposable
         Assert.Equal(("SMART-on-FHIR", "http://localhost/auth/token"), (service, token));
     }
 
+    [Fact]
+    public async Task The_capability_statement_names_the_prior_authorization_information_a_patient_access_api_reads()
+    {
+        var (_, _, body) = await _api.CapabilityStatement();
+
+        var eob = Resources(JsonDocument.Parse(body).RootElement).Single(r => r.GetProperty("type").GetString() == "ExplanationOfBenefit");
+        Assert.Equal(["http://hl7.org/fhir/us/davinci-pdex/StructureDefinition/pdex-priorauthorization"],
+            eob.GetProperty("supportedProfile").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(["read", "search-type"], eob.GetProperty("interaction").EnumerateArray().Select(i => i.GetProperty("code").GetString()));
+        Assert.Equal(["patient", "_lastUpdated"], eob.GetProperty("searchParam").EnumerateArray().Select(p => p.GetProperty("name").GetString()));
+    }
+
     private static IEnumerable<JsonElement> Resources(JsonElement statement) =>
         statement.GetProperty("rest")[0].GetProperty("resource").EnumerateArray();
 }

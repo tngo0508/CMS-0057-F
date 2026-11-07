@@ -19,7 +19,8 @@ A Reviewer then approves (`A1`, with an Authorization Number and end date) or de
 plain-language Denial Reason). The provider system can ask what became of its requests, or subscribe and be told.
 An EHR can ask, as a clinician signs an order, whether prior authorization is needed and which documentation goes
 with it (Da Vinci CRD), and its DTR app can then fetch that Documentation Questionnaire, started, to complete
-(Da Vinci DTR), as a whole or a few questions at a time.
+(Da Vinci DTR), as a whole or a few questions at a time. The agency's Patient Access API reads each Member's Prior
+Authorization Information here, in the shape Da Vinci PDex gives it, to show the Member.
 
 | Endpoint | Guide | Purpose |
 | --- | --- | --- |
@@ -31,6 +32,7 @@ with it (Da Vinci CRD), and its DTR app can then fetch that Documentation Questi
 | `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order: whether prior authorization is needed and the questionnaire to complete |
 | `POST /fhir/Questionnaire/$questionnaire-package` | DTR 2.2.0 | The Documentation Questionnaire(s) for an order or by canonical, each with a started QuestionnaireResponse |
 | `POST /fhir/Questionnaire/$next-question` | DTR 2.2.0 / SDC adaptive forms | The next questions of an Adaptive Questionnaire, chosen from the answers so far |
+| `GET /fhir/ExplanationOfBenefit?patient=&_lastUpdated=`, `GET /fhir/ExplanationOfBenefit/{id}` | PDex 2.1.0 | A Member's Prior Authorization Information, one ExplanationOfBenefit per request, for the Patient Access API to serve on |
 | `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
 | `POST /reviewer/requests/{id}/approve`, `.../deny` | — | The Reviewer's decision |
@@ -154,6 +156,51 @@ submits is Pended here, decided on the Reviewer's page, and the decision shows i
    [http://localhost:5198/reviewer](http://localhost:5198/reviewer); the notification lands at
    `http://localhost:8090/api/pas/notification` and br-provider's page shows Approved with the Authorization Number.
 
+## Prior Authorization Information for the Patient Access API
+
+From January 1, 2027 the Patient Access API has to show a Member their prior authorization requests and decisions
+(42 CFR 422.119(b)(1)(iv), applied to Medicaid managed care by 438.242(b)(5)): the status, the date approved or
+denied, the date or circumstance under which the authorization ends, the items and services approved, the specific
+reason for a denial, and related documentation the provider submitted; accessible within one business day of the
+request and of every status change, and kept for as long as the authorization is active and at least a year after
+its last status change. Drugs are excluded, and this plan prior-authorizes none.
+
+This project assumes the agency runs its Patient Access API already (a vendor's, from the 2020 rule; unconfirmed,
+see the issues), so what is built here is the payer side it reads from, not a Member-facing app: the Member's own
+SMART App Launch, identity proofing and consent stay with that API. It authenticates here like any other system
+(SMART Backend Services, scope `system/ExplanationOfBenefit.read`) and reads:
+
+- `GET /fhir/ExplanationOfBenefit?patient={member id}`: every request ever made for the Member, whoever sent it,
+  oldest first, each a [PDex 2.1 Prior Authorization](https://hl7.org/fhir/us/davinci-pdex/STU2.1/StructureDefinition-pdex-priorauthorization.html)
+  `ExplanationOfBenefit` (the guide the rule recommends). `patient` is required, as PDex's server capability has
+  it. `_lastUpdated=ge2026-11-06T19:00:00Z` narrows it to the requests whose status changed since, which is how
+  the Patient Access API keeps within the one-business-day window without reading everything again.
+- `GET /fhir/ExplanationOfBenefit/{id}`: one of them.
+
+Each `ExplanationOfBenefit` is the request's PAS ClaimResponse told again in PDex terms, so a Member and their
+provider read the same decision: `use` `preauthorization`; `created` the date received; `meta.lastUpdated` the
+last status change; `outcome` `queued` while Pended and `complete` once answered; `status` `cancelled` when the
+provider withdrew it. The review action (X12 306: `A1` approved, `A2` denied or cancelled, `A3` not required, `A4`
+Pended) is on the `adjudication` of the request and of each item, with the date decided (`when-adjudicated`), the
+Authorization Number, and on a denial the Denial Reason as the review action's `reasonCode`: the plan's X12 886
+code when one was given and the Reviewer's words as its text, repeated as a process note. An approval carries the
+authorization period (`preAuthRefPeriod`, and PAS's `itemPreAuthPeriod` on each item) from the day of the decision
+to the end date the Reviewer gave. Items repeat the services asked for (HCPCS code and modifiers, category,
+place of service, quantity) with their trace numbers. Nothing is ever deleted, so the retention requirement is met
+by keeping everything; a retention schedule beyond that is the agency's.
+
+PDex wants a Money on the adjudication that carries the review action; a prior authorization states no amount
+unless the provider priced what it asked for (`Claim.item.net`), so otherwise the Money names the currency and no
+value rather than a zero that would read as a statement. Checked against the published profile with the Firely
+validator, an `ExplanationOfBenefit` from here has no errors; what remains are terminology warnings for the X12 and
+HCPCS code systems no FHIR package carries, and the profile's own `adjudication-has-amount-type-slice` invariant,
+which names a value set URL the guide misspells (`davinc-pdex`) and so cannot be evaluated by any validator.
+
+Not in it: the related documentation submitted by the provider (none is received yet; see the issues on DTR), the
+units used to date (a claims figure PDex puts in `total`, which this service has no claims to compute from), and
+the `Patient`, `Coverage` and `Organization` resources the references point at (they are the request's own, with
+the organizations' names as display text).
+
 ## How a provider system authenticates
 
 The Final Rule requires SMART App Launch 1.0 for the payer APIs, and this service takes the Backend Services
@@ -181,8 +228,10 @@ password. Da Vinci's `br-payer` sample runs without authentication; here it is o
 
 Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, reading a ClaimResponse
 `system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write`, looking one up
-`system/Subscription.read` and the two DTR operations `system/Questionnaire.read` (`br-provider` asks for
-`system/*.rs`, which is granted as that); CRD needs only a token from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
+`system/Subscription.read`, the two DTR operations `system/Questionnaire.read` (`br-provider` asks for
+`system/*.rs`, which is granted as that) and the Patient Access API's reads `system/ExplanationOfBenefit.read`
+(the sample client `sample-patient-access-api`, which signs with the same synthetic key); CRD needs only a token
+from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
 and is answered in it; and it is granted the part of what it asked for that it is registered for, the token
 response's `scope` saying which, rather than refused outright (`invalid_scope` only when none of it can be granted).
 The metrics report under `/reports`
@@ -212,13 +261,15 @@ standard and expedited deadlines (24 hours for residential treatment; 5 business
 26-030 mental health services); several items per request; updates, cancellations and renewals; approval and
 denial with the rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the
 public metrics report; SMART Backend Services authentication for the provider-facing endpoints; validation of
-requests and inquiries against the PAS profiles.
+requests and inquiries against the PAS profiles; Prior Authorization Information for the Patient Access API as PDex
+Prior Authorization ExplanationOfBenefit resources.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR prepopulation beyond the order
 itself (no CQL libraries ship; the plan fills in only the service requested), receiving a completed
-QuestionnaireResponse with a request, the Reviewer endpoints' own authentication, and the rule's other three APIs
-(Patient Access, Provider Access, Payer-to-Payer). Several issues are questions for the agency rather than work
-items.
+QuestionnaireResponse with a request (and so the related documentation in the Patient Access information), the
+Reviewer endpoints' own authentication, the Member-facing side of the Patient Access API (assumed to be the
+agency's vendor's), and the rule's Provider Access and Payer-to-Payer APIs. Several issues are questions for the
+agency rather than work items.
 
 ## Sources and attribution
 

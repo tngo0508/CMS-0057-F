@@ -52,6 +52,10 @@ public static class ServerCapabilities
                         Resource("ClaimResponse", interactions: [CapabilityStatement.TypeRestfulInteraction.Read]),
                         Resource("Subscription", interactions: [CapabilityStatement.TypeRestfulInteraction.Create, CapabilityStatement.TypeRestfulInteraction.SearchType]),
                         Resource("Questionnaire", operations: [("questionnaire-package", Dtr + "questionnaire-package"), ("next-question", Sdc + "Questionnaire-next-question")]),
+                        Resource("ExplanationOfBenefit",
+                            interactions: [CapabilityStatement.TypeRestfulInteraction.Read, CapabilityStatement.TypeRestfulInteraction.SearchType],
+                            supportedProfile: PatientAccess.PriorAuthorizationInformation.Profile,
+                            searchParameters: [("patient", SearchParamType.Reference), ("_lastUpdated", SearchParamType.Date)]),
                     ],
                 },
             ],
@@ -61,10 +65,14 @@ public static class ServerCapabilities
     private static CapabilityStatement.ResourceComponent Resource(
         string type,
         IEnumerable<CapabilityStatement.TypeRestfulInteraction>? interactions = null,
-        IEnumerable<(string Name, string Definition)>? operations = null) => new()
+        IEnumerable<(string Name, string Definition)>? operations = null,
+        string? supportedProfile = null,
+        IEnumerable<(string Name, SearchParamType Type)>? searchParameters = null) => new()
     {
         Type = type,
+        SupportedProfile = supportedProfile is null ? [] : [supportedProfile],
         Interaction = [.. (interactions ?? []).Select(i => new CapabilityStatement.ResourceInteractionComponent { Code = i })],
         Operation = [.. (operations ?? []).Select(o => new CapabilityStatement.OperationComponent { Name = o.Name, Definition = o.Definition })],
+        SearchParam = [.. (searchParameters ?? []).Select(p => new CapabilityStatement.SearchParamComponent { Name = p.Name, Type = p.Type })],
     };
 }

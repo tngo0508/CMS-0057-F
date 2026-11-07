@@ -116,11 +116,17 @@ A Documentation Questionnaire the Behavioral Health Plan hands out a few questio
 from the answers so far, until it says the questionnaire is complete.
 _Avoid_: Wizard, dynamic form, interview
 
+**Prior Authorization Information**:
+What the Behavioral Health Plan shows a Member about each of their Prior Authorization Requests through the Patient
+Access API: its status, the date it was approved or denied, when the authorization ends, the Requested Services and
+which were approved, and the Denial Reason.
+_Avoid_: PA data, EOB, prior auth record, prior authorization history
+
 ### The four APIs
 
 **Patient Access API**:
-The interface through which a person retrieves their own claims, encounter, clinical and prior authorization
-information from the Behavioral Health Plan.
+The interface through which a person retrieves their own claims, encounter, clinical and Prior Authorization
+Information from the Behavioral Health Plan.
 
 **Provider Access API**:
 The interface through which an in-network provider with a treatment relationship retrieves a person's claims,

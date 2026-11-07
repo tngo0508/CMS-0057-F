@@ -12,6 +12,9 @@
 #
 # To try the service without tokens instead, set Authentication:Enabled to false in appsettings.json.
 @clientAssertion = PASTE-THE-SCRIPT-OUTPUT-HERE
+# Step 7 acts as the agency's Patient Access API, a different client with the same synthetic key:
+#     ./samples/New-ClientAssertion.ps1 -ClientId sample-patient-access-api
+@patientAccessAssertion = PASTE-THE-SCRIPT-OUTPUT-HERE
 
 ### A. The provider system trades its signed client assertion for an access token.
 # Expect: 200 with access_token, token_type "bearer", expires_in 300 and the scopes granted.
@@ -399,6 +402,25 @@ Authorization: Bearer {{token.response.body.$.access_token}}
 # Expect: 200 with counts of requests that needed a decision, approved/denied percentages and the
 # average and median hours to a decision. Without ?year= the report is for last year.
 GET {{baseUrl}}/reports/prior-authorization-metrics?year=2026
+
+### C. The Patient Access API trades its own client assertion for a token (scope system/ExplanationOfBenefit.read).
+# @name patientAccessToken
+POST {{baseUrl}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{patientAccessAssertion}}&scope=system/ExplanationOfBenefit.read
+
+### 7. The Patient Access API reads the Member's Prior Authorization Information (PDex Prior Authorization).
+# Expect: 200 with a searchset of one ExplanationOfBenefit per request for the Member: use "preauthorization",
+# the review action (A1/A2/A3/A4) on the adjudication with the date decided, the Authorization Number and period
+# on an approval, the Denial Reason on a denial. Add &_lastUpdated=ge2026-11-06T00:00:00Z to see only what changed
+# since. Without patient= it is 400; with the provider system's token from step A it is 403.
+GET {{baseUrl}}/fhir/ExplanationOfBenefit?patient=90000001A
+Authorization: Bearer {{patientAccessToken.response.body.$.access_token}}
+
+### 7b. One of them by its id (the same id as the ClaimResponse's).
+GET {{baseUrl}}/fhir/ExplanationOfBenefit/{{submit.response.body.$.entry[0].resource.id}}
+Authorization: Bearer {{patientAccessToken.response.body.$.access_token}}
 
 ### 6. Provider cancels the request from step 1 (while it is Pended, or after approval).
 # Expect: 200 with every item "A2" and a process note "Cancelled at the provider's request"; the request

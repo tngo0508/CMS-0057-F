@@ -113,6 +113,17 @@ public sealed class PriorAuthorizationRequests(
     /// <summary>The request a provider system asks about by the id its ClaimResponse carries, or null.</summary>
     public async Task<PriorAuthorizationRequest?> Find(Guid id) => await db.Requests.FindAsync(id);
 
+    /// <summary>
+    /// Every request ever made for a Member, oldest first, whoever sent it: what the Member is entitled to see.
+    /// Nothing is ever dropped, so a request stays visible for as long as the rule asks (at least a year after
+    /// its last status change) and longer.
+    /// </summary>
+    public async Task<IReadOnlyList<PriorAuthorizationRequest>> OfMember(string memberIdentifier) =>
+        await db.Requests
+            .Where(r => r.MemberIdentifier == memberIdentifier)
+            .OrderBy(r => r.ReceivedAt)
+            .ToListAsync();
+
     private async Task<PriorAuthorizationRequest?> Decide(Guid id, Action<PriorAuthorizationRequest> decision)
     {
         var request = await db.Requests.FindAsync(id);

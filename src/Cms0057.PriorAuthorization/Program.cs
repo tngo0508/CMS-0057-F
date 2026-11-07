@@ -5,6 +5,7 @@ using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Dtr;
 using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
+using Cms0057.PriorAuthorization.PatientAccess;
 using Cms0057.PriorAuthorization.Reports;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -161,6 +162,31 @@ Protected(app.MapPost("/fhir/Questionnaire/$next-question", async (HttpRequest h
         return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
     }
 }), "system/Questionnaire.read");
+
+// Patient Access: the agency's Patient Access API reads a Member's prior authorization information here, as PDex
+// Prior Authorization ExplanationOfBenefit resources, to serve it to the Member (42 CFR 422.119(b)(1)(iv)). The
+// search needs the Member, as PDex's server capability does.
+Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+{
+    try
+    {
+        var patient = QueryValue(http, "patient");
+        if (string.IsNullOrWhiteSpace(patient))
+            throw new RequestRejected("The patient search parameter is required: a Member's Patient id");
+        var member = patient.StartsWith("Patient/", StringComparison.Ordinal) ? patient["Patient/".Length..] : patient;
+        var lastUpdated = DateSearch.Parse(QueryValue(http, "_lastUpdated"));
+        return Fhir(PriorAuthorizationInformation.SearchResult(await requests.OfMember(member), ServerBase(http), lastUpdated));
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
+    }
+}), "system/ExplanationOfBenefit.read");
+
+Protected(app.MapGet("/fhir/ExplanationOfBenefit/{id:guid}", async (Guid id, HttpRequest http, PriorAuthorizationRequests requests) =>
+    await requests.Find(id) is { } request
+        ? Fhir(PriorAuthorizationInformation.Of(request, ServerBase(http)))
+        : Fhir(PasWire.NotFound($"No ExplanationOfBenefit with id {id}"), StatusCodes.Status404NotFound)), "system/ExplanationOfBenefit.read");
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
 // system, as a registered client; no scope is needed beyond that. Authentication:RequireTokenForCdsHooks lets an
