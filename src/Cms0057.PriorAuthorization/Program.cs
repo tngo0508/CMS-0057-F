@@ -27,6 +27,7 @@ builder.Services.AddSingleton<DocumentationRequirements>();
 builder.Services.AddSingleton<AdaptiveForms>();
 builder.Services.AddScoped<PasSubscriptions>();
 builder.Services.AddScoped<Attributions>();
+builder.Services.AddScoped<MemberMatches>();
 builder.Services.AddSingleton<BulkExports>();
 builder.Services.AddScoped<PriorAuthorizationMetrics>();
 builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
@@ -170,7 +171,8 @@ Protected(app.MapPost("/fhir/Questionnaire/$next-question", async (HttpRequest h
 // Patient Access: the agency's Patient Access API reads a Member's prior authorization information here, as PDex
 // Prior Authorization ExplanationOfBenefit resources, to serve it to the Member (42 CFR 422.119(b)(1)(iv)). The
 // search needs the Member, as PDex's server capability does.
-Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions) =>
+Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (
+    HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock) =>
 {
     try
     {
@@ -178,10 +180,12 @@ Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, Prio
         if (string.IsNullOrWhiteSpace(patient))
             throw new RequestRejected("The patient search parameter is required: a Member's Patient id");
         var member = patient.StartsWith("Patient/", StringComparison.Ordinal) ? patient["Patient/".Length..] : patient;
-        if (!await MayDisclose(ClientOf(http, register), member, attributions))
-            return Fhir(PasWire.Forbidden("This Member's information is not available to the calling system: the Member is not attributed to it, or has opted out"), StatusCodes.Status403Forbidden);
+        var client = ClientOf(http, register);
+        if (!await MayDisclose(client, member, attributions, matches))
+            return Fhir(PasWire.Forbidden(NotAvailableToCaller()), StatusCodes.Status403Forbidden);
         var lastUpdated = DateSearch.Parse(QueryValue(http, "_lastUpdated"));
-        return Fhir(PriorAuthorizationInformation.SearchResult(await requests.OfMember(member), ServerBase(http), lastUpdated));
+        var shared = Shareable(client, await requests.OfMember(member), clock.GetUtcNow());
+        return Fhir(PriorAuthorizationInformation.SearchResult(shared, ServerBase(http), lastUpdated));
     }
     catch (RequestRejected rejected)
     {
@@ -189,36 +193,43 @@ Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, Prio
     }
 }), "system/ExplanationOfBenefit.read");
 
-Protected(app.MapGet("/fhir/ExplanationOfBenefit/{id:guid}", async (Guid id, HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions) =>
+Protected(app.MapGet("/fhir/ExplanationOfBenefit/{id:guid}", async (
+    Guid id, HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock) =>
 {
     if (await requests.Find(id) is not { } request)
         return Fhir(PasWire.NotFound($"No ExplanationOfBenefit with id {id}"), StatusCodes.Status404NotFound);
-    if (!await MayDisclose(ClientOf(http, register), request.MemberIdentifier, attributions))
-        return Fhir(PasWire.Forbidden("This Member's information is not available to the calling system: the Member is not attributed to it, or has opted out"), StatusCodes.Status403Forbidden);
+    var client = ClientOf(http, register);
+    if (!await MayDisclose(client, request.MemberIdentifier, attributions, matches))
+        return Fhir(PasWire.Forbidden(NotAvailableToCaller()), StatusCodes.Status403Forbidden);
+    if (!Shareable(client, [request], clock.GetUtcNow()).Any())
+        return Fhir(PasWire.Forbidden("This prior authorization is not shared with another payer: the rule leaves out denied ones, and ones no longer active whose status last changed over a year ago"), StatusCodes.Status403Forbidden);
     return Fhir(PriorAuthorizationInformation.Of(request, ServerBase(http)));
 }), "system/ExplanationOfBenefit.read");
 
 // Provider Access: a provider system sees its Attribution List as a PDex Provider Group (the Members attributed
 // to its organization who have not opted out), and exports their prior authorization information with Bulk Data
 // (42 CFR 422.121(a)). Another system's list is not there, as far as it can tell.
-Protected(app.MapGet("/fhir/Group", async (HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock) =>
+Protected(app.MapGet("/fhir/Group", async (HttpRequest http, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock) =>
 {
+    var client = ClientOf(http, register);
     var groups = new List<Hl7.Fhir.Model.Group>();
-    if (ClientOf(http, register) is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: { } npi } && await attributions.HasList(npi))
+    if (client is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: { } npi } && await attributions.HasList(npi))
         groups.Add(AttributionLists.ProviderGroup(npi, await attributions.ListOf(npi), clock.GetUtcNow()));
+    if (PayerIdentity(client) is { } payer && await matches.HasMatches(payer))
+        groups.Add(AttributionLists.MemberMatchGroup(payer, await matches.ListOf(payer), await matches.FirstMatchOf(payer), clock.GetUtcNow()));
     return Fhir(AttributionLists.SearchResult(groups, ServerBase(http)));
 }), "system/Group.read");
 
-Protected(app.MapGet("/fhir/Group/{id}", async (string id, HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock) =>
-    await OwnList(id, http, register, attributions, clock) is { } group
+Protected(app.MapGet("/fhir/Group/{id}", async (string id, HttpRequest http, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock) =>
+    await OwnList(id, http, register, attributions, matches, clock) is { } group
         ? Fhir(group)
         : Fhir(PasWire.NotFound($"No Group with id {id}"), StatusCodes.Status404NotFound)), "system/Group.read");
 
 // Bulk Data kick-off on the list: 202 and where to poll; the export is complete at once.
 Protected(app.MapMethods("/fhir/Group/{id}/$export", ["GET", "POST"], async (
-    string id, HttpRequest http, ClientRegister register, Attributions attributions, PriorAuthorizationRequests requests, BulkExports exports, TimeProvider clock) =>
+    string id, HttpRequest http, ClientRegister register, Attributions attributions, MemberMatches matches, PriorAuthorizationRequests requests, BulkExports exports, TimeProvider clock) =>
 {
-    if (await OwnList(id, http, register, attributions, clock) is not { } group)
+    if (await OwnList(id, http, register, attributions, matches, clock) is not { } group)
         return Fhir(PasWire.NotFound($"No Group with id {id}"), StatusCodes.Status404NotFound);
     try
     {
@@ -226,7 +237,7 @@ Protected(app.MapMethods("/fhir/Group/{id}/$export", ["GET", "POST"], async (
         var members = group.Member.Select(m => m.Entity.Reference!["Patient/".Length..]).ToList();
         var since = wanted.Since is { } instant ? new DateSearch("ge", instant) : (DateSearch?)null;
         var resources = wanted.Wants("ExplanationOfBenefit")
-            ? (await requests.OfMembers(members))
+            ? Shareable(ClientOf(http, register), await requests.OfMembers(members), clock.GetUtcNow())
                 .Where(r => since is not { } s || s.Matches(PriorAuthorizationInformation.LastChanged(r)))
                 .Select(r => (Hl7.Fhir.Model.Resource)PriorAuthorizationInformation.Of(r, ServerBase(http)))
             : [];
@@ -265,6 +276,60 @@ app.MapPost("/members/{identifier}/attributions", async (string identifier, NewA
     string.IsNullOrWhiteSpace(attribution.ProviderIdentifier)
         ? Results.Problem("providerIdentifier is required: the provider's NPI", statusCode: StatusCodes.Status400BadRequest)
         : await attributions.Attribute(attribution.ProviderIdentifier.Trim(), identifier) ? Results.NoContent() : Results.NotFound());
+
+app.MapPut("/members/{identifier}/payer-to-payer", async (string identifier, PayerToPayerChoice choice, MemberMatches matches) =>
+    await matches.SetOptIn(identifier, choice.OptedIn) ? Results.NoContent() : Results.NotFound());
+
+// Payer-to-Payer: another payer a Member has moved to, or also holds coverage with, finds the Member here with
+// HRex $member-match, sending the person as it knows them, the Coverage it believes this plan gave them, and their
+// Consent (the opt-in, 42 CFR 422.121(b)). One Member must fit, and must have opted in; otherwise there is no
+// match, which HRex has answered with 422. A match lets the payer see the Member's information from then on.
+Protected(app.MapPost("/fhir/Patient/$member-match", async (HttpRequest http, ClientRegister register, MemberMatches matches, TimeProvider clock) =>
+{
+    var client = ClientOf(http, register);
+    if (client is not null && PayerIdentity(client) is null)
+        return Fhir(PasWire.Forbidden("Only another payer, registered as one, may match Members"), StatusCodes.Status403Forbidden);
+    try
+    {
+        using var reader = new StreamReader(http.Body);
+        var asked = MemberMatchWire.Read(await reader.ReadToEndAsync());
+        if (asked.ConsentEnds is not { } consentEnds)
+            return Fhir(MemberMatchWire.NoMatch("A Consent permitting the disclosure is required: the Member's opt-in to the exchange, with the period it holds for"), StatusCodes.Status422UnprocessableEntity);
+        if (consentEnds < clock.GetUtcNow())
+            return Fhir(MemberMatchWire.NoMatch("The Consent's period has ended: it no longer permits the exchange"), StatusCodes.Status422UnprocessableEntity);
+        if (await matches.Identify(asked.Identifiers, asked.FamilyName, asked.GivenNames) is not { } member)
+            return Fhir(MemberMatchWire.NoMatch("No Member matches the person described"), StatusCodes.Status422UnprocessableEntity);
+        if (!await matches.HasOptedIn(member))
+            return Fhir(MemberMatchWire.NoMatch("The Member has not opted in to sharing their information with another payer"), StatusCodes.Status422UnprocessableEntity);
+        await matches.Record(PayerIdentity(client) ?? "demo", member, consentEnds);
+        return Fhir(MemberMatchWire.Found(member, MemberMatchWire.MemberIdentifierSystem));
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
+    }
+}), "system/Patient.read");
+
+// Everything the plan shares about a matched Member, as PDex has a payer ask for it: the Member, then their prior
+// authorization information, filtered as the rule has it.
+Protected(app.MapGet("/fhir/Patient/{id}/$everything", async (
+    string id, HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock) =>
+{
+    var client = ClientOf(http, register);
+    if (!await MayDisclose(client, id, attributions, matches))
+        return Fhir(PasWire.Forbidden(NotAvailableToCaller()), StatusCodes.Status403Forbidden);
+    if (await matches.Find(id) is not { } member)
+        return Fhir(PasWire.NotFound($"No Patient with id {id}"), StatusCodes.Status404NotFound);
+    var everything = PriorAuthorizationInformation.SearchResult(Shareable(client, await requests.OfMember(id), clock.GetUtcNow()), ServerBase(http));
+    everything.Entry.Insert(0, new Hl7.Fhir.Model.Bundle.EntryComponent
+    {
+        FullUrl = $"{ServerBase(http)}/Patient/{id}",
+        Resource = MemberMatchWire.PatientOf(member, MemberMatchWire.MemberIdentifierSystem),
+        Search = new Hl7.Fhir.Model.Bundle.SearchComponent { Mode = Hl7.Fhir.Model.Bundle.SearchEntryMode.Match },
+    });
+    everything.Total = everything.Entry.Count;
+    return Fhir(everything);
+}), "system/Patient.read");
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
 // system, as a registered client; no scope is needed beyond that. Authentication:RequireTokenForCdsHooks lets an
@@ -355,24 +420,52 @@ static string ClientIdOf(HttpRequest http) => http.HttpContext.User.FindFirst("c
 /// <summary>
 /// Whose prior authorization information a system may see: a provider system, the Members attributed to its
 /// organization who have not opted out; the Patient Access API, every Member's, to serve each their own; another
-/// payer, none yet. Without authentication (a local demo) there is no one to keep it from.
+/// payer, the Members it has matched who have opted in. Without authentication (a local demo) there is no one to
+/// keep it from.
 /// </summary>
-static async Task<bool> MayDisclose(RegisteredClient? client, string memberIdentifier, Attributions attributions) => client switch
+static async Task<bool> MayDisclose(RegisteredClient? client, string memberIdentifier, Attributions attributions, MemberMatches matches) => client switch
 {
     null => true,
     { Kind: ClientKind.PatientAccessApi } => true,
     { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: { } npi } => await attributions.MayDiscloseTo(npi, memberIdentifier),
+    { Kind: ClientKind.Payer } => await matches.MayDiscloseTo(PayerIdentity(client)!, memberIdentifier),
     _ => false,
 };
 
-/// <summary>The Group the id names, when it is the calling provider system's own Attribution List; otherwise null.</summary>
-static async Task<Hl7.Fhir.Model.Group?> OwnList(string id, HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock)
+static string NotAvailableToCaller() =>
+    "This Member's information is not available to the calling system: the Member is not attributed to it or has opted out of Provider Access, or it has not matched the Member or the Member has not opted in to Payer-to-Payer exchange";
+
+/// <summary>What another payer is registered as: its organization identifier, or failing that its client id. Null for anyone else.</summary>
+static string? PayerIdentity(RegisteredClient? client) =>
+    client is { Kind: ClientKind.Payer } ? client.OrganizationIdentifier ?? client.ClientId : null;
+
+/// <summary>
+/// What of a Member's requests the system may see: another payer, only what the rule shares payer-to-payer (no
+/// denials, nothing stale); a provider or the Patient Access API, all of them.
+/// </summary>
+static IEnumerable<PriorAuthorizationRequest> Shareable(RegisteredClient? client, IEnumerable<PriorAuthorizationRequest> requests, DateTimeOffset now) =>
+    client is { Kind: ClientKind.Payer } ? PayerToPayer.Shareable(requests, now) : requests;
+
+/// <summary>
+/// The Group the id names, when it is the calling system's own: a provider system's Attribution List, or another
+/// payer's matched Members. Otherwise null, so that it answers as not found.
+/// </summary>
+static async Task<Hl7.Fhir.Model.Group?> OwnList(string id, HttpRequest http, ClientRegister register, Attributions attributions, MemberMatches matches, TimeProvider clock)
 {
-    if (AttributionLists.ProviderOf(id) is not { } npi) return null;
     var client = ClientOf(http, register);
-    var itsOwn = client is null || client is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: var own } && own == npi;
-    if (!itsOwn || !await attributions.HasList(npi)) return null;
-    return AttributionLists.ProviderGroup(npi, await attributions.ListOf(npi), clock.GetUtcNow());
+    if (AttributionLists.ProviderOf(id) is { } npi)
+    {
+        var itsOwn = client is null || client is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: var own } && own == npi;
+        if (!itsOwn || !await attributions.HasList(npi)) return null;
+        return AttributionLists.ProviderGroup(npi, await attributions.ListOf(npi), clock.GetUtcNow());
+    }
+    if (AttributionLists.PayerOf(id) is { } payer)
+    {
+        var itsOwn = client is null || PayerIdentity(client) == payer;
+        if (!itsOwn || !await matches.HasMatches(payer)) return null;
+        return AttributionLists.MemberMatchGroup(payer, await matches.ListOf(payer), await matches.FirstMatchOf(payer), clock.GetUtcNow());
+    }
+    return null;
 }
 
 static async Task<IResult> Decision(
@@ -405,6 +498,9 @@ public sealed record Denial(string? DenialReason, string? ReasonCode = null);
 
 /// <summary>A Member's choice about the Provider Access API: opted out, or (back) in.</summary>
 public sealed record ProviderAccessChoice(bool OptedOut);
+
+/// <summary>A Member's choice about the Payer-to-Payer API: opted in, or withdrawn.</summary>
+public sealed record PayerToPayerChoice(bool OptedIn);
 
 /// <param name="ProviderIdentifier">The NPI of the in-network provider the Member is a patient of.</param>
 public sealed record NewAttribution(string? ProviderIdentifier);

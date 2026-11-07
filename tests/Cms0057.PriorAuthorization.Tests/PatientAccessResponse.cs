@@ -44,6 +44,12 @@ public sealed class PatientAccessResponse
         }
     }
 
+    /// <summary>The resource types of a Bundle's entries, in order: what else came with the prior authorizations.</summary>
+    public IReadOnlyList<string?> ResourceTypes =>
+        ResourceType == "Bundle" && _root.TryGetProperty("entry", out var entries)
+            ? [.. entries.EnumerateArray().Select(e => e.GetProperty("resource").GetProperty("resourceType").GetString())]
+            : [];
+
     /// <summary>The one prior authorization a search found or a read answered with.</summary>
     public PriorAuthorizationInformation Single => PriorAuthorizations.Single();
 

@@ -36,6 +36,9 @@ Authorization Information here, in the shape Da Vinci PDex gives it, to show the
 | `GET /fhir/Group`, `GET /fhir/Group/{id}` | PDex 2.1.0 / ATR 2.1.0 | A provider system's Attribution List: the Members it may see |
 | `GET`/`POST /fhir/Group/{id}/$export`, `GET /fhir/$export-status/{job}`, `GET /fhir/$export-files/{job}/{type}.ndjson` | Bulk Data 1.0 | Export the list's Prior Authorization Information (Provider Access API) |
 | `PUT /members/{id}/provider-access`, `POST /members/{id}/attributions` | — | Staff: a Member's Opt-Out, and an Attribution the plan records itself |
+| `POST /fhir/Patient/$member-match` | HRex 1.1.0 | Another payer finds a Member who has opted in (Payer-to-Payer API); the matched Members are its `Group`, with `$export` as above |
+| `GET /fhir/Patient/{id}/$everything` | PDex 2.1.0 | Everything shared with another payer about a matched Member |
+| `PUT /members/{id}/payer-to-payer` | — | Staff: a Member's Opt-In to the Payer-to-Payer exchange |
 | `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
 | `POST /reviewer/requests/{id}/approve`, `.../deny` | — | The Reviewer's decision |
@@ -248,6 +251,51 @@ read. Not built: PDex's `Consent` resource for the opt-out (the choice is record
 draft `$davinci-data-export` operation (the rule names Bulk Data `$export`), and the claims, encounter and clinical
 data the rule also puts in this API, which this service does not hold.
 
+## Payer-to-Payer exchange with another plan
+
+From January 1, 2027 a Member who moves to, or also holds coverage with, another Impacted Payer may have their
+information follow them, if they opt in (42 CFR 422.121(b); Medicaid managed care through 438.242(b)(7)). The
+plan shares claims, encounter and clinical data and the prior authorization information above, for dates of
+service within five years, leaving out provider remittances, cost-sharing and denied prior authorizations, within
+one week of the other payer's request; the other payer attests the Member's enrollment and opt-in. Da Vinci PDex 2.1
+shapes it as HRex `$member-match` to identify the Member, a `Group` of matched Members per payer, and Bulk Data or
+`$everything` to fetch.
+
+What is built, for the prior authorization information this service holds:
+
+- **Opt-In.** `PUT /members/{member}/payer-to-payer` with `{"optedIn": true}` (or `false` to withdraw) records the
+  Member's choice; nothing is shared with another payer until they opt in, and withdrawing stops the sharing at
+  once. The Member-facing form is the agency's, outside this service.
+- **Member match.** Another payer is registered with `Kind: Payer` and its organization identifier. It sends
+  `POST /fhir/Patient/$member-match`
+  ([HRex](https://hl7.org/fhir/us/davinci-hrex/STU1.1/OperationDefinition-member-match.html) `Parameters`:
+  `MemberPatient`, the person as it knows them; `CoverageToMatch`, the coverage it believes this plan gave them;
+  `Consent`, the Member's permission, shaped to HRex's Consent profile). The plan looks for one Member whose
+  identifier the Coverage or Patient carries and whose name agrees; it answers the `MemberIdentifier` (type `UMB`)
+  and `MemberId` (`Patient/{member}`) when exactly one fits, the Member has opted in, and the Consent permits
+  disclosure for a period that has not ended. Anything else is 422 with an OperationOutcome saying which, as HRex
+  has it; a malformed request is 400. A match is remembered, with the Consent's end date.
+- **The matched Members.** `GET /fhir/Group` shows the payer its own
+  [PDex Member Match Group](https://hl7.org/fhir/us/davinci-pdex/STU2.1/StructureDefinition-pdex-member-match-group.html)
+  (id `payer-{identifier}`, code `match`, one `member` per matched Member who is still opted in and whose Consent
+  is still in its period), and `GET /fhir/Group/{id}` reads it; nobody else's Group is there.
+- **Fetching.** `Group/{id}/$export` works as for Provider Access, `GET /fhir/ExplanationOfBenefit?patient=`
+  for one matched Member, and `GET /fhir/Patient/{member}/$everything` answers the Member as a `Patient` followed
+  by their prior authorization information. In every case what another payer gets is filtered as the rule has it:
+  **denied requests are left out**, as are requests from more than five years ago and requests that are no longer
+  active (Pended, or Approved for a period not yet ended) whose status last changed more than a year ago, which is
+  the PDex payer-to-payer scope. A request that is not shared answers 403 when read by id.
+- **Conformance.** The Group validates against PDex 2.1.0; the match request and answer against HRex 1.1.0's
+  Parameters profiles (checked with the Firely validator; the checks are not kept as tests because they need the
+  PDex, ATR and HRex packages, which the service does not ship).
+
+Scopes: `system/Patient.read` for `$member-match` and `$everything`, `system/Group.read` for the Group,
+`system/ExplanationOfBenefit.read` for the export and the single-Member read. The sample client
+`sample-other-payer` signs with the same synthetic key as the others. Not built: PDex's bulk member match
+(`$bulk-member-match`), the plan acting as the *requesting* payer (asking a Member's old plan for their
+information), unstructured documentation (no QuestionnaireResponse is received yet, see above), and the claims,
+encounter and clinical data this service does not hold.
+
 ## How a provider system authenticates
 
 The Final Rule requires SMART App Launch 1.0 for the payer APIs, and this service takes the Backend Services
@@ -277,10 +325,12 @@ Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, re
 `system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write`, looking one up
 `system/Subscription.read`, the two DTR operations `system/Questionnaire.read` (`br-provider` asks for
 `system/*.rs`, which is granted as that), the Patient Access API's and a provider's prior authorization reads
-`system/ExplanationOfBenefit.read` (the sample client `sample-patient-access-api` signs with the same synthetic key)
-and a provider's Attribution List `system/Group.read`; CRD needs only a token from a registered client. What a
-client may see follows from its registration, not its scopes: `Kind` is `ProviderSystem` (the default; with
-`OrganizationIdentifier`, its NPI), `PatientAccessApi` or `Payer`. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
+`system/ExplanationOfBenefit.read` (the sample client `sample-patient-access-api` signs with the same synthetic key),
+a provider's Attribution List or a payer's matched Members `system/Group.read`, and another payer's `$member-match`
+and `$everything` `system/Patient.read`; CRD needs only a token from a registered client. What a client may see
+follows from its registration, not its scopes: `Kind` is `ProviderSystem` (the default; with
+`OrganizationIdentifier`, its NPI), `PatientAccessApi` or `Payer` (with `OrganizationIdentifier`, what its matches
+are kept under). A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
 and is answered in it; and it is granted the part of what it asked for that it is registered for, the token
 response's `scope` saying which, rather than refused outright (`invalid_scope` only when none of it can be granted).
 The metrics report under `/reports`
@@ -312,14 +362,16 @@ denial with the rule's required content, including coded Denial Reasons; overdue
 public metrics report; SMART Backend Services authentication for the provider-facing endpoints; validation of
 requests and inquiries against the PAS profiles; Prior Authorization Information for the Patient Access API as PDex
 Prior Authorization ExplanationOfBenefit resources; Provider Access with Attribution, Opt-Out, Attribution Lists
-and Bulk Data export.
+and Bulk Data export; Payer-to-Payer with Opt-In, HRex member match, the matched Members' Group, `$everything` and
+the rule's filtering (no denials, five years, a year after the last status change unless still active).
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR prepopulation beyond the order
 itself (no CQL libraries ship; the plan fills in only the service requested), receiving a completed
-QuestionnaireResponse with a request (and so the related documentation in the Patient and Provider Access
-information), the Reviewer and staff endpoints' own authentication, the Member-facing side of the Patient Access
-API and of the Opt-Out (assumed to be the agency's), and the rule's Payer-to-Payer API. Several issues are
-questions for the agency rather than work items.
+QuestionnaireResponse with a request (and so the related documentation in the Patient Access, Provider Access and
+Payer-to-Payer information), the Reviewer and staff endpoints' own authentication, the Member-facing side of the
+Patient Access API, the Opt-Out and the Opt-In (assumed to be the agency's), the plan as the requesting payer in a
+Payer-to-Payer exchange, and the claims, encounter and clinical data the three access APIs also carry, which this
+service does not hold. Several issues are questions for the agency rather than work items.
 
 ## Sources and attribution
 

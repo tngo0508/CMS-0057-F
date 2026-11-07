@@ -137,6 +137,19 @@ A Member's choice that their information not be shared with their providers thro
 Information is shared unless the Member opts out, and the choice can be changed at any time.
 _Avoid_: Consent withdrawal, block, restriction, opt-in (that is the Payer-to-Payer choice)
 
+**Opt-In**:
+A Member's choice that their information be shared with another payer they have moved to or also hold coverage
+with, through the Payer-to-Payer API. Nothing is shared until the Member opts in, and the choice can be withdrawn at
+any time.
+_Avoid_: Consent (unqualified; the FHIR resource that carries it is one), authorization, opt-out (that is the
+Provider Access choice)
+
+**Member Match**:
+The Behavioral Health Plan's finding that the person another payer describes is one of its Members, made at that
+payer's request with the Member's Opt-In. What lets that payer see the Member's information through the
+Payer-to-Payer API, for as long as the Member's permission runs.
+_Avoid_: Patient match, identity resolution, linkage
+
 ### The four APIs
 
 **Patient Access API**:
@@ -148,8 +161,9 @@ The interface through which an in-network provider retrieves the claims, encount
 Information of the Members attributed to it (see Attribution), unless the Member has opted out (see Opt-Out).
 
 **Payer-to-Payer API**:
-The interface through which Impacted Payers exchange a person's information when coverage changes or is concurrent,
-only after that person has opted in.
+The interface through which Impacted Payers exchange a Member's information when coverage changes or is concurrent,
+only after the Member has opted in (see Opt-In) and the other payer has found them (see Member Match). Denied Prior
+Authorization Requests are never part of it.
 
 **Prior Authorization API**:
 The interface through which a provider learns whether prior authorization is required (Coverage Information), what

@@ -10,10 +10,13 @@ namespace Cms0057.PriorAuthorization.Sharing;
 public static class AttributionLists
 {
     public const string ProviderGroupProfile = "http://hl7.org/fhir/us/davinci-pdex/StructureDefinition/pdex-provider-group";
+    public const string MemberMatchGroupProfile = "http://hl7.org/fhir/us/davinci-pdex/StructureDefinition/pdex-member-match-group";
     private const string AttributionCodeSystem = "http://hl7.org/fhir/us/davinci-pdex/CodeSystem/PdexMemberAttributionCS";
+    private const string MatchResultCodeSystem = "http://hl7.org/fhir/us/davinci-pdex/CodeSystem/PdexMultiMemberMatchResultCS";
     private const string AttributionListStatusUrl = "http://hl7.org/fhir/us/davinci-atr/StructureDefinition/ext-attributionListStatus";
     private const string NpiSystem = "http://hl7.org/fhir/sid/us-npi";
     private const string IdPrefix = "provider-";
+    private const string PayerIdPrefix = "payer-";
 
     /// <summary>The Group id of a provider's list, from the NPI it is registered under.</summary>
     public static string IdFor(string providerNpi) => IdPrefix + providerNpi;
@@ -21,6 +24,50 @@ public static class AttributionLists
     /// <summary>The NPI a Group id names, or null when the id is not one of ours.</summary>
     public static string? ProviderOf(string groupId) =>
         groupId.StartsWith(IdPrefix, StringComparison.Ordinal) && groupId.Length > IdPrefix.Length ? groupId[IdPrefix.Length..] : null;
+
+    /// <summary>The Group id of another payer's matched Members, from the identifier it is registered under.</summary>
+    public static string IdForPayer(string payerIdentifier) => PayerIdPrefix + payerIdentifier;
+
+    /// <summary>The payer identifier a Group id names, or null when the id is not one of ours.</summary>
+    public static string? PayerOf(string groupId) =>
+        groupId.StartsWith(PayerIdPrefix, StringComparison.Ordinal) && groupId.Length > PayerIdPrefix.Length ? groupId[PayerIdPrefix.Length..] : null;
+
+    /// <summary>
+    /// The Members another payer has matched and may see, as a PDex Member Match Group: the payer is the
+    /// characteristic, each matched Member who is still opted in a member.
+    /// </summary>
+    public static Group MemberMatchGroup(string payerIdentifier, IEnumerable<string> memberIdentifiers, DateTimeOffset? firstMatch, DateTimeOffset now)
+    {
+        var matched = new CodeableConcept(MatchResultCodeSystem, "match", "Matched", null);
+        var payer = new ResourceReference { Identifier = new Identifier(NpiSystem, payerIdentifier), Display = $"Payer {payerIdentifier}" };
+        var group = new Group
+        {
+            Id = IdForPayer(payerIdentifier),
+            Meta = new Meta { Profile = [MemberMatchGroupProfile], LastUpdated = now },
+            Identifier = [new Identifier(NpiSystem, payerIdentifier)],
+            Active = true,
+            Type = Group.GroupType.Person,
+            Actual = true,
+            Code = matched,
+            Name = $"Members matched by payer {payerIdentifier}",
+            ManagingEntity = new ResourceReference("Organization/behavioral-health-plan") { Display = "The Behavioral Health Plan" },
+            Characteristic =
+            [
+                new Group.CharacteristicComponent
+                {
+                    Code = matched,
+                    Value = payer,
+                    Exclude = false,
+                    Period = firstMatch is { } start ? new Period { StartElement = new FhirDateTime(start) } : null,
+                },
+            ],
+            Member = [.. memberIdentifiers.Select(member => new Group.MemberComponent
+            {
+                Entity = new ResourceReference("Patient/" + member),
+            })],
+        };
+        return group;
+    }
 
     /// <summary>The provider's list as it stands now: a Group of the Members it may see.</summary>
     public static Group ProviderGroup(string providerNpi, IEnumerable<string> memberIdentifiers, DateTimeOffset now)

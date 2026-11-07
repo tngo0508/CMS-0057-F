@@ -53,6 +53,22 @@ public sealed class DescribingTheServerTests : IDisposable
         Assert.Equal(["patient", "_lastUpdated"], eob.GetProperty("searchParam").EnumerateArray().Select(p => p.GetProperty("name").GetString()));
     }
 
+    [Fact]
+    public async Task The_statement_tells_another_payer_how_to_match_members_and_what_groups_it_will_see()
+    {
+        var (_, _, body) = await _api.CapabilityStatement();
+
+        var resources = Resources(JsonDocument.Parse(body).RootElement).ToList();
+        var patient = resources.Single(r => r.GetProperty("type").GetString() == "Patient");
+        Assert.Equal(
+            [("member-match", "http://hl7.org/fhir/us/davinci-hrex/OperationDefinition/member-match"), ("everything", "http://hl7.org/fhir/OperationDefinition/Patient-everything")],
+            patient.GetProperty("operation").EnumerateArray().Select(o => (o.GetProperty("name").GetString(), o.GetProperty("definition").GetString())));
+        var group = resources.Single(r => r.GetProperty("type").GetString() == "Group");
+        Assert.Equal(
+            ["http://hl7.org/fhir/us/davinci-pdex/StructureDefinition/pdex-provider-group", "http://hl7.org/fhir/us/davinci-pdex/StructureDefinition/pdex-member-match-group"],
+            group.GetProperty("supportedProfile").EnumerateArray().Select(p => p.GetString()));
+    }
+
     private static IEnumerable<JsonElement> Resources(JsonElement statement) =>
         statement.GetProperty("rest")[0].GetProperty("resource").EnumerateArray();
 }

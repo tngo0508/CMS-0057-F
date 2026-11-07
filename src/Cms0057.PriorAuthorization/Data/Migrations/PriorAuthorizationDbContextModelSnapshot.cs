@@ -74,6 +74,14 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<DateTimeOffset?>("PayerToPayerChangedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("PayerToPayerOptedIn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTimeOffset?>("ProviderAccessChangedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -88,6 +96,38 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Members");
+                });
+
+            modelBuilder.Entity("Cms0057.PriorAuthorization.Data.MemberMatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("ConsentEnds")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("MatchedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("MemberIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("PayerIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PayerIdentifier", "MemberIdentifier")
+                        .IsUnique();
+
+                    b.ToTable("MemberMatches");
                 });
 
             modelBuilder.Entity("Cms0057.PriorAuthorization.Notifications.DecisionSubscription", b =>

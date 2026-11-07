@@ -14,6 +14,8 @@ public static class ServerCapabilities
     private const string Dtr = "http://hl7.org/fhir/us/davinci-dtr/OperationDefinition/";
     private const string Sdc = "http://hl7.org/fhir/uv/sdc/OperationDefinition/";
     private const string BulkData = "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/";
+    private const string Hrex = "http://hl7.org/fhir/us/davinci-hrex/OperationDefinition/";
+    private const string Core = "http://hl7.org/fhir/OperationDefinition/";
     private const string OAuthUrisExtension = "http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris";
 
     public static CapabilityStatement For(string serverRoot, DateTimeOffset now)
@@ -55,12 +57,13 @@ public static class ServerCapabilities
                         Resource("Questionnaire", operations: [("questionnaire-package", Dtr + "questionnaire-package"), ("next-question", Sdc + "Questionnaire-next-question")]),
                         Resource("ExplanationOfBenefit",
                             interactions: [CapabilityStatement.TypeRestfulInteraction.Read, CapabilityStatement.TypeRestfulInteraction.SearchType],
-                            supportedProfile: PatientAccess.PriorAuthorizationInformation.Profile,
+                            supportedProfiles: [PatientAccess.PriorAuthorizationInformation.Profile],
                             searchParameters: [("patient", SearchParamType.Reference), ("_lastUpdated", SearchParamType.Date)]),
                         Resource("Group",
                             interactions: [CapabilityStatement.TypeRestfulInteraction.Read, CapabilityStatement.TypeRestfulInteraction.SearchType],
                             operations: [("export", BulkData + "group-export")],
-                            supportedProfile: Sharing.AttributionLists.ProviderGroupProfile),
+                            supportedProfiles: [Sharing.AttributionLists.ProviderGroupProfile, Sharing.AttributionLists.MemberMatchGroupProfile]),
+                        Resource("Patient", operations: [("member-match", Hrex + "member-match"), ("everything", Core + "Patient-everything")]),
                     ],
                 },
             ],
@@ -71,11 +74,11 @@ public static class ServerCapabilities
         string type,
         IEnumerable<CapabilityStatement.TypeRestfulInteraction>? interactions = null,
         IEnumerable<(string Name, string Definition)>? operations = null,
-        string? supportedProfile = null,
+        IEnumerable<string>? supportedProfiles = null,
         IEnumerable<(string Name, SearchParamType Type)>? searchParameters = null) => new()
     {
         Type = type,
-        SupportedProfile = supportedProfile is null ? [] : [supportedProfile],
+        SupportedProfile = [.. supportedProfiles ?? []],
         Interaction = [.. (interactions ?? []).Select(i => new CapabilityStatement.ResourceInteractionComponent { Code = i })],
         Operation = [.. (operations ?? []).Select(o => new CapabilityStatement.OperationComponent { Name = o.Name, Definition = o.Definition })],
         SearchParam = [.. (searchParameters ?? []).Select(p => new CapabilityStatement.SearchParamComponent { Name = p.Name, Type = p.Type })],

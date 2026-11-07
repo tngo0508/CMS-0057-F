@@ -10,6 +10,7 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
     public DbSet<Member> Members => Set<Member>();
     public DbSet<DecisionSubscription> Subscriptions => Set<DecisionSubscription>();
     public DbSet<Attribution> Attributions => Set<Attribution>();
+    public DbSet<MemberMatch> MemberMatches => Set<MemberMatch>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -51,6 +52,15 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             member.Property(m => m.FamilyName).HasMaxLength(200);
             member.Property(m => m.GivenName).HasMaxLength(200);
             member.Property(m => m.ProviderAccessOptedOut).HasDefaultValue(false);
+            member.Property(m => m.PayerToPayerOptedIn).HasDefaultValue(false);
+        });
+
+        model.Entity<MemberMatch>(match =>
+        {
+            match.HasKey(m => m.Id);
+            match.Property(m => m.PayerIdentifier).HasMaxLength(100);
+            match.Property(m => m.MemberIdentifier).HasMaxLength(100);
+            match.HasIndex(m => new { m.PayerIdentifier, m.MemberIdentifier }).IsUnique();
         });
 
         model.Entity<Attribution>(attribution =>
@@ -88,6 +98,33 @@ public sealed class Member
 
     /// <summary>When the Member last changed their Opt-Out, for the plan's records.</summary>
     public DateTimeOffset? ProviderAccessChangedAt { get; set; }
+
+    /// <summary>
+    /// The Member's Opt-In: true when they have asked that their information be shared with another payer they
+    /// have moved to or also hold coverage with, through the Payer-to-Payer API. Not shared until they do, as the
+    /// rule has it; withdrawable at any time.
+    /// </summary>
+    public bool PayerToPayerOptedIn { get; set; }
+
+    /// <summary>When the Member last changed their Opt-In, for the plan's records.</summary>
+    public DateTimeOffset? PayerToPayerChangedAt { get; set; }
+}
+
+/// <summary>
+/// A Member Match: the plan's record that another payer has identified a Member as someone it covers, with the
+/// Member's consent, which is what lets that payer see the Member's information through the Payer-to-Payer API.
+/// </summary>
+public sealed class MemberMatch
+{
+    public int Id { get; set; }
+
+    /// <summary>The identifier the other payer is registered under (an NPI, usually).</summary>
+    public required string PayerIdentifier { get; set; }
+    public required string MemberIdentifier { get; set; }
+    public DateTimeOffset MatchedAt { get; set; }
+
+    /// <summary>The end of the period the Member's Consent permits the exchange for.</summary>
+    public DateTimeOffset ConsentEnds { get; set; }
 }
 
 /// <summary>

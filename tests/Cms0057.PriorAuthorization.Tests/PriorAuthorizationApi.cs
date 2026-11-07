@@ -66,6 +66,15 @@ public sealed class PriorAuthorizationApi(
     /// </summary>
     public RegisteredSystem PatientAccessApi { get; } = new("synthetic-patient-access-api", "system/ExplanationOfBenefit.read", kind: "PatientAccessApi");
 
+    /// <summary>The identifier (an NPI) the other payer is registered under, which its matches are kept by.</summary>
+    public const string OtherPayerIdentifier = "9876543210";
+
+    /// <summary>
+    /// Another Impacted Payer a Member has moved to or also holds coverage with; registered as a payer that may
+    /// match Members and read the matched Members' prior authorization information.
+    /// </summary>
+    public RegisteredSystem OtherPayer { get; } = new("synthetic-other-payer", "system/Patient.read system/Group.read system/ExplanationOfBenefit.read", kind: "Payer", organizationIdentifier: OtherPayerIdentifier);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -86,6 +95,7 @@ public sealed class PriorAuthorizationApi(
         builder.UseSetting("Authentication:Clients:1:JwksUri", EhrJwksUrl);
         Register(builder, 2, PatientAccessApi);
         Register(builder, 3, OtherProviderSystem);
+        Register(builder, 4, OtherPayer);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -240,6 +250,31 @@ public sealed class PriorAuthorizationApi(
         using var client = CreateClient();
         using var response = await client.PutAsJsonAsync($"/members/{memberIdentifier}/provider-access", new { optedOut });
         return response.StatusCode;
+    }
+
+    /// <summary>The plan records a Member's Payer-to-Payer opt-in, or its withdrawal. Staff, not FHIR.</summary>
+    public async Task<HttpStatusCode> SetPayerToPayerOptIn(string memberIdentifier, bool optedIn)
+    {
+        using var client = CreateClient();
+        using var response = await client.PutAsJsonAsync($"/members/{memberIdentifier}/payer-to-payer", new { optedIn });
+        return response.StatusCode;
+    }
+
+    /// <summary>Another payer asks whether a person it covers is a Member here (HRex $member-match).</summary>
+    public async Task<MemberMatchResponse> MemberMatch(string parameters, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(OtherPayer));
+        using var content = new StringContent(parameters, Encoding.UTF8, "application/fhir+json");
+        using var response = await client.PostAsync("/fhir/Patient/$member-match", content);
+        return new MemberMatchResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Another payer asks for everything about a matched Member (Patient/$everything).</summary>
+    public async Task<PatientAccessResponse> Everything(string patientId, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(OtherPayer));
+        using var response = await client.GetAsync($"/fhir/Patient/{patientId}/$everything");
+        return new PatientAccessResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
     /// <summary>The plan attributes a Member to an in-network provider itself (an assigned provider, say). Staff, not FHIR.</summary>

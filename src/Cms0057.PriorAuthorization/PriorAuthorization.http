@@ -15,6 +15,9 @@
 # Step 7 acts as the agency's Patient Access API, a different client with the same synthetic key:
 #     ./samples/New-ClientAssertion.ps1 -ClientId sample-patient-access-api
 @patientAccessAssertion = PASTE-THE-SCRIPT-OUTPUT-HERE
+# Step 9 acts as another payer the Member has moved to, again a different client with the same synthetic key:
+#     ./samples/New-ClientAssertion.ps1 -ClientId sample-other-payer
+@payerAssertion = PASTE-THE-SCRIPT-OUTPUT-HERE
 
 ### A. The provider system trades its signed client assertion for an access token.
 # Expect: 200 with access_token, token_type "bearer", expires_in 300 and the scopes granted.
@@ -456,6 +459,94 @@ POST {{baseUrl}}/members/90000002B/attributions
 Content-Type: application/json
 
 { "providerIdentifier": "8189991234" }
+
+### 9. Staff: the Member opts in to the Payer-to-Payer exchange (nothing is shared with another payer until they do).
+PUT {{baseUrl}}/members/90000001A/payer-to-payer
+Content-Type: application/json
+
+{ "optedIn": true }
+
+### D. The other payer trades its own client assertion for a token.
+# @name payerToken
+POST {{baseUrl}}/auth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{payerAssertion}}&scope=system/Patient.read system/Group.read system/ExplanationOfBenefit.read
+
+### 9b. The other payer finds the Member (HRex $member-match): the person as it knows them, the coverage it believes
+# this plan gave them, and the Member's Consent. Expect: 200 Parameters with MemberIdentifier 90000001A (type UMB)
+# and MemberId Patient/90000001A. Skip step 9 first to see 422 "has not opted in"; drop the Consent to see 422.
+POST {{baseUrl}}/fhir/Patient/$member-match
+Content-Type: application/fhir+json
+Authorization: Bearer {{payerToken.response.body.$.access_token}}
+
+{
+  "resourceType": "Parameters",
+  "parameter": [
+    {
+      "name": "MemberPatient",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "as-the-other-payer-knows-them",
+        "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://other-payer.example.org/fhir/sid/member-identifier", "value": "OP-90000001A" }],
+        "name": [{ "family": "EXAMPLE", "given": ["ALEX"] }],
+        "gender": "female",
+        "birthDate": "1990-01-15"
+      }
+    },
+    {
+      "name": "CoverageToMatch",
+      "resource": {
+        "resourceType": "Coverage",
+        "id": "with-the-behavioral-health-plan",
+        "identifier": [{ "type": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v2-0203", "code": "MB" }] }, "system": "http://example.org/fhir/sid/member-identifier", "value": "90000001A" }],
+        "status": "active",
+        "subscriberId": "90000001A",
+        "beneficiary": { "reference": "Patient/as-the-other-payer-knows-them" },
+        "relationship": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/subscriber-relationship", "code": "self" }] },
+        "period": { "start": "2024-01-01" },
+        "payor": [{ "identifier": { "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }, "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" }]
+      }
+    },
+    {
+      "name": "Consent",
+      "resource": {
+        "resourceType": "Consent",
+        "id": "payer-to-payer-opt-in",
+        "status": "active",
+        "scope": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/consentscope", "code": "patient-privacy" }] },
+        "category": [{ "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode", "code": "IDSCL" }] }],
+        "patient": { "reference": "Patient/as-the-other-payer-knows-them" },
+        "performer": [{ "reference": "Patient/as-the-other-payer-knows-them" }],
+        "sourceReference": { "reference": "DocumentReference/signed-opt-in-form" },
+        "policy": [{ "uri": "http://hl7.org/fhir/us/davinci-hrex/StructureDefinition-hrex-consent.html#regular" }],
+        "provision": {
+          "type": "permit",
+          "period": { "start": "2026-11-01", "end": "2027-11-06" },
+          "actor": [
+            { "role": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type", "code": "performer" }] }, "reference": { "identifier": { "system": "http://hl7.org/fhir/sid/us-npi", "value": "1234567893" }, "display": "SYNTHETIC BEHAVIORAL HEALTH PLAN" } },
+            { "role": { "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/v3-ParticipationType", "code": "IRCP" }] }, "reference": { "identifier": { "system": "http://hl7.org/fhir/sid/us-npi", "value": "9876543210" }, "display": "SYNTHETIC OTHER PAYER" } }
+          ],
+          "action": [{ "coding": [{ "system": "http://terminology.hl7.org/CodeSystem/consentaction", "code": "disclose" }] }]
+        }
+      }
+    }
+  ]
+}
+
+### 9c. The other payer sees the Members it has matched (PDex Member Match Group, id payer-9876543210).
+GET {{baseUrl}}/fhir/Group
+Authorization: Bearer {{payerToken.response.body.$.access_token}}
+
+### 9d. Everything shared about the Member: the Patient, then the prior authorizations the rule shares (never a denied one).
+GET {{baseUrl}}/fhir/Patient/90000001A/$everything
+Authorization: Bearer {{payerToken.response.body.$.access_token}}
+
+### 9e. Or a Bulk Data export of the whole Group, as in 8b-8d (poll the Content-Location, then fetch the file).
+POST {{baseUrl}}/fhir/Group/payer-9876543210/$export
+Prefer: respond-async
+Accept: application/fhir+json
+Authorization: Bearer {{payerToken.response.body.$.access_token}}
 
 ### 6. Provider cancels the request from step 1 (while it is Pended, or after approval).
 # Expect: 200 with every item "A2" and a process note "Cancelled at the provider's request"; the request

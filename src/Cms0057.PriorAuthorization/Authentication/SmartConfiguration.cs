@@ -14,7 +14,7 @@ public static class SmartConfiguration
     /// (<c>system/Claim.crus</c>) and is answered in it (see <see cref="Scopes"/>).
     /// </summary>
     public static readonly string[] ScopesSupported =
-        ["system/Claim.read", "system/Claim.write", "system/ClaimResponse.read", "system/Subscription.read", "system/Subscription.write", "system/Questionnaire.read", "system/ExplanationOfBenefit.read", "system/Group.read"];
+        ["system/Claim.read", "system/Claim.write", "system/ClaimResponse.read", "system/Subscription.read", "system/Subscription.write", "system/Questionnaire.read", "system/ExplanationOfBenefit.read", "system/Group.read", "system/Patient.read"];
 
     public static readonly string[] SigningAlgorithms = ["RS384", "ES384"];
 
