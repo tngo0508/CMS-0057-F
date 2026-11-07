@@ -13,6 +13,7 @@ public static class ServerCapabilities
     private const string Pas = "http://hl7.org/fhir/us/davinci-pas/OperationDefinition/";
     private const string Dtr = "http://hl7.org/fhir/us/davinci-dtr/OperationDefinition/";
     private const string Sdc = "http://hl7.org/fhir/uv/sdc/OperationDefinition/";
+    private const string BulkData = "http://hl7.org/fhir/uv/bulkdata/OperationDefinition/";
     private const string OAuthUrisExtension = "http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris";
 
     public static CapabilityStatement For(string serverRoot, DateTimeOffset now)
@@ -56,6 +57,10 @@ public static class ServerCapabilities
                             interactions: [CapabilityStatement.TypeRestfulInteraction.Read, CapabilityStatement.TypeRestfulInteraction.SearchType],
                             supportedProfile: PatientAccess.PriorAuthorizationInformation.Profile,
                             searchParameters: [("patient", SearchParamType.Reference), ("_lastUpdated", SearchParamType.Date)]),
+                        Resource("Group",
+                            interactions: [CapabilityStatement.TypeRestfulInteraction.Read, CapabilityStatement.TypeRestfulInteraction.SearchType],
+                            operations: [("export", BulkData + "group-export")],
+                            supportedProfile: Sharing.AttributionLists.ProviderGroupProfile),
                     ],
                 },
             ],

@@ -47,6 +47,23 @@ public sealed class RegisteredClient
 
     /// <summary>The SMART system scopes this client may be granted, space-separated.</summary>
     public string Scopes { get; set; } = "";
+
+    /// <summary>
+    /// What the client is to the plan, which decides whose information it may see: a provider system sees the
+    /// Members attributed to its organization (Provider Access); the Patient Access API sees every Member's, to
+    /// serve each Member their own; another payer sees the Members it has matched who opted in (Payer-to-Payer).
+    /// </summary>
+    public ClientKind Kind { get; set; } = ClientKind.ProviderSystem;
+
+    /// <summary>The organization the client acts for: a provider's NPI, or another payer's identifier.</summary>
+    public string? OrganizationIdentifier { get; set; }
+}
+
+public enum ClientKind
+{
+    ProviderSystem,
+    PatientAccessApi,
+    Payer,
 }
 
 /// <summary>A JWK Set as configuration holds it: each key is its JWK members by name.</summary>

@@ -1,5 +1,6 @@
 using Cms0057.PriorAuthorization;
 using Cms0057.PriorAuthorization.Authentication;
+using Cms0057.PriorAuthorization.BulkData;
 using Cms0057.PriorAuthorization.Crd;
 using Cms0057.PriorAuthorization.Data;
 using Cms0057.PriorAuthorization.Dtr;
@@ -7,6 +8,7 @@ using Cms0057.PriorAuthorization.Notifications;
 using Cms0057.PriorAuthorization.Pas;
 using Cms0057.PriorAuthorization.PatientAccess;
 using Cms0057.PriorAuthorization.Reports;
+using Cms0057.PriorAuthorization.Sharing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +26,8 @@ builder.Services.AddSingleton<DocumentationQuestionnaires>();
 builder.Services.AddSingleton<DocumentationRequirements>();
 builder.Services.AddSingleton<AdaptiveForms>();
 builder.Services.AddScoped<PasSubscriptions>();
+builder.Services.AddScoped<Attributions>();
+builder.Services.AddSingleton<BulkExports>();
 builder.Services.AddScoped<PriorAuthorizationMetrics>();
 builder.Services.AddHttpClient(PasSubscriptions.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(10));
 builder.Services.Configure<AuthenticationOptions>(builder.Configuration.GetSection(AuthenticationOptions.Section));
@@ -166,7 +170,7 @@ Protected(app.MapPost("/fhir/Questionnaire/$next-question", async (HttpRequest h
 // Patient Access: the agency's Patient Access API reads a Member's prior authorization information here, as PDex
 // Prior Authorization ExplanationOfBenefit resources, to serve it to the Member (42 CFR 422.119(b)(1)(iv)). The
 // search needs the Member, as PDex's server capability does.
-Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, PriorAuthorizationRequests requests) =>
+Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions) =>
 {
     try
     {
@@ -174,6 +178,8 @@ Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, Prio
         if (string.IsNullOrWhiteSpace(patient))
             throw new RequestRejected("The patient search parameter is required: a Member's Patient id");
         var member = patient.StartsWith("Patient/", StringComparison.Ordinal) ? patient["Patient/".Length..] : patient;
+        if (!await MayDisclose(ClientOf(http, register), member, attributions))
+            return Fhir(PasWire.Forbidden("This Member's information is not available to the calling system: the Member is not attributed to it, or has opted out"), StatusCodes.Status403Forbidden);
         var lastUpdated = DateSearch.Parse(QueryValue(http, "_lastUpdated"));
         return Fhir(PriorAuthorizationInformation.SearchResult(await requests.OfMember(member), ServerBase(http), lastUpdated));
     }
@@ -183,10 +189,82 @@ Protected(app.MapGet("/fhir/ExplanationOfBenefit", async (HttpRequest http, Prio
     }
 }), "system/ExplanationOfBenefit.read");
 
-Protected(app.MapGet("/fhir/ExplanationOfBenefit/{id:guid}", async (Guid id, HttpRequest http, PriorAuthorizationRequests requests) =>
-    await requests.Find(id) is { } request
-        ? Fhir(PriorAuthorizationInformation.Of(request, ServerBase(http)))
-        : Fhir(PasWire.NotFound($"No ExplanationOfBenefit with id {id}"), StatusCodes.Status404NotFound)), "system/ExplanationOfBenefit.read");
+Protected(app.MapGet("/fhir/ExplanationOfBenefit/{id:guid}", async (Guid id, HttpRequest http, PriorAuthorizationRequests requests, ClientRegister register, Attributions attributions) =>
+{
+    if (await requests.Find(id) is not { } request)
+        return Fhir(PasWire.NotFound($"No ExplanationOfBenefit with id {id}"), StatusCodes.Status404NotFound);
+    if (!await MayDisclose(ClientOf(http, register), request.MemberIdentifier, attributions))
+        return Fhir(PasWire.Forbidden("This Member's information is not available to the calling system: the Member is not attributed to it, or has opted out"), StatusCodes.Status403Forbidden);
+    return Fhir(PriorAuthorizationInformation.Of(request, ServerBase(http)));
+}), "system/ExplanationOfBenefit.read");
+
+// Provider Access: a provider system sees its Attribution List as a PDex Provider Group (the Members attributed
+// to its organization who have not opted out), and exports their prior authorization information with Bulk Data
+// (42 CFR 422.121(a)). Another system's list is not there, as far as it can tell.
+Protected(app.MapGet("/fhir/Group", async (HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock) =>
+{
+    var groups = new List<Hl7.Fhir.Model.Group>();
+    if (ClientOf(http, register) is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: { } npi } && await attributions.HasList(npi))
+        groups.Add(AttributionLists.ProviderGroup(npi, await attributions.ListOf(npi), clock.GetUtcNow()));
+    return Fhir(AttributionLists.SearchResult(groups, ServerBase(http)));
+}), "system/Group.read");
+
+Protected(app.MapGet("/fhir/Group/{id}", async (string id, HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock) =>
+    await OwnList(id, http, register, attributions, clock) is { } group
+        ? Fhir(group)
+        : Fhir(PasWire.NotFound($"No Group with id {id}"), StatusCodes.Status404NotFound)), "system/Group.read");
+
+// Bulk Data kick-off on the list: 202 and where to poll; the export is complete at once.
+Protected(app.MapMethods("/fhir/Group/{id}/$export", ["GET", "POST"], async (
+    string id, HttpRequest http, ClientRegister register, Attributions attributions, PriorAuthorizationRequests requests, BulkExports exports, TimeProvider clock) =>
+{
+    if (await OwnList(id, http, register, attributions, clock) is not { } group)
+        return Fhir(PasWire.NotFound($"No Group with id {id}"), StatusCodes.Status404NotFound);
+    try
+    {
+        var wanted = BulkExports.Request.Read(http.Query, ["ExplanationOfBenefit"]);
+        var members = group.Member.Select(m => m.Entity.Reference!["Patient/".Length..]).ToList();
+        var since = wanted.Since is { } instant ? new DateSearch("ge", instant) : (DateSearch?)null;
+        var resources = wanted.Wants("ExplanationOfBenefit")
+            ? (await requests.OfMembers(members))
+                .Where(r => since is not { } s || s.Matches(PriorAuthorizationInformation.LastChanged(r)))
+                .Select(r => (Hl7.Fhir.Model.Resource)PriorAuthorizationInformation.Of(r, ServerBase(http)))
+            : [];
+        var job = exports.Start(ClientIdOf(http), ServerRoot(http) + http.Path + http.QueryString, clock.GetUtcNow(), resources);
+        http.HttpContext.Response.Headers.ContentLocation = BulkExports.StatusUrl(job, ServerBase(http));
+        return Results.StatusCode(StatusCodes.Status202Accepted);
+    }
+    catch (RequestRejected rejected)
+    {
+        return Fhir(PasWire.Rejection(rejected), StatusCodes.Status400BadRequest);
+    }
+}), "system/ExplanationOfBenefit.read");
+
+// Bulk Data status request: the manifest, to the system that started the export.
+Protected(app.MapGet("/fhir/$export-status/{job}", (string job, HttpRequest http, BulkExports exports) =>
+    exports.Find(job, ClientIdOf(http)) is { } found
+        ? Results.Json(BulkExports.Manifest(found, ServerBase(http)))
+        : Fhir(PasWire.NotFound($"No export {job}"), StatusCodes.Status404NotFound)), "system/ExplanationOfBenefit.read");
+
+Protected(app.MapDelete("/fhir/$export-status/{job}", (string job, HttpRequest http, BulkExports exports) =>
+    exports.Delete(job, ClientIdOf(http))
+        ? Results.StatusCode(StatusCodes.Status202Accepted)
+        : Fhir(PasWire.NotFound($"No export {job}"), StatusCodes.Status404NotFound)), "system/ExplanationOfBenefit.read");
+
+// Bulk Data output file: one resource type, newline-delimited JSON.
+Protected(app.MapGet("/fhir/$export-files/{job}/{type}.ndjson", (string job, string type, HttpRequest http, BulkExports exports) =>
+    exports.Find(job, ClientIdOf(http)) is { } found && found.Files.TryGetValue(type, out var file)
+        ? Results.Text(file.Ndjson, BulkExports.NdjsonMediaType)
+        : Fhir(PasWire.NotFound($"No {type} file in export {job}"), StatusCodes.Status404NotFound)), "system/ExplanationOfBenefit.read");
+
+// What the plan's staff record about a Member's sharing choices and providers. Internal, not FHIR.
+app.MapPut("/members/{identifier}/provider-access", async (string identifier, ProviderAccessChoice choice, Attributions attributions) =>
+    await attributions.SetProviderAccessOptOut(identifier, choice.OptedOut) ? Results.NoContent() : Results.NotFound());
+
+app.MapPost("/members/{identifier}/attributions", async (string identifier, NewAttribution attribution, Attributions attributions) =>
+    string.IsNullOrWhiteSpace(attribution.ProviderIdentifier)
+        ? Results.Problem("providerIdentifier is required: the provider's NPI", statusCode: StatusCodes.Status400BadRequest)
+        : await attributions.Attribute(attribution.ProviderIdentifier.Trim(), identifier) ? Results.NoContent() : Results.NotFound());
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
 // system, as a registered client; no scope is needed beyond that. Authentication:RequireTokenForCdsHooks lets an
@@ -268,6 +346,35 @@ static string ServerBase(HttpRequest http) => ServerRoot(http) + "/fhir";
 static string? QueryValue(HttpRequest http, string name) =>
     http.Query.TryGetValue(name, out var values) ? values.ToString() : null;
 
+/// <summary>The registered client the request's token was issued to; null without authentication (a local demo).</summary>
+static RegisteredClient? ClientOf(HttpRequest http, ClientRegister register) =>
+    http.HttpContext.User.FindFirst("client_id")?.Value is { } clientId ? register.Find(clientId) : null;
+
+static string ClientIdOf(HttpRequest http) => http.HttpContext.User.FindFirst("client_id")?.Value ?? "";
+
+/// <summary>
+/// Whose prior authorization information a system may see: a provider system, the Members attributed to its
+/// organization who have not opted out; the Patient Access API, every Member's, to serve each their own; another
+/// payer, none yet. Without authentication (a local demo) there is no one to keep it from.
+/// </summary>
+static async Task<bool> MayDisclose(RegisteredClient? client, string memberIdentifier, Attributions attributions) => client switch
+{
+    null => true,
+    { Kind: ClientKind.PatientAccessApi } => true,
+    { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: { } npi } => await attributions.MayDiscloseTo(npi, memberIdentifier),
+    _ => false,
+};
+
+/// <summary>The Group the id names, when it is the calling provider system's own Attribution List; otherwise null.</summary>
+static async Task<Hl7.Fhir.Model.Group?> OwnList(string id, HttpRequest http, ClientRegister register, Attributions attributions, TimeProvider clock)
+{
+    if (AttributionLists.ProviderOf(id) is not { } npi) return null;
+    var client = ClientOf(http, register);
+    var itsOwn = client is null || client is { Kind: ClientKind.ProviderSystem, OrganizationIdentifier: var own } && own == npi;
+    if (!itsOwn || !await attributions.HasList(npi)) return null;
+    return AttributionLists.ProviderGroup(npi, await attributions.ListOf(npi), clock.GetUtcNow());
+}
+
 static async Task<IResult> Decision(
     Func<Task<PriorAuthorizationRequest?>> decide,
     PasSubscriptions subscriptions,
@@ -295,5 +402,11 @@ public sealed record Approval(DateOnly? AuthorizationEnds);
 /// <param name="DenialReason">The plain-language reason; required.</param>
 /// <param name="ReasonCode">One of the plan's configured X12 886 codes; optional.</param>
 public sealed record Denial(string? DenialReason, string? ReasonCode = null);
+
+/// <summary>A Member's choice about the Provider Access API: opted out, or (back) in.</summary>
+public sealed record ProviderAccessChoice(bool OptedOut);
+
+/// <param name="ProviderIdentifier">The NPI of the in-network provider the Member is a patient of.</param>
+public sealed record NewAttribution(string? ProviderIdentifier);
 
 public partial class Program;

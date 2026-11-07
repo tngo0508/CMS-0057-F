@@ -122,6 +122,21 @@ Access API: its status, the date it was approved or denied, when the authorizati
 which were approved, and the Denial Reason.
 _Avoid_: PA data, EOB, prior auth record, prior authorization history
 
+**Attribution**:
+The Behavioral Health Plan's record that a Member is a patient of an in-network provider, made when the provider
+sends a Prior Authorization Request for the Member or when the plan's staff record it. What lets the provider see
+the Member's information through the Provider Access API.
+_Avoid_: Roster, panel, assignment, treatment relationship (unqualified)
+
+**Attribution List**:
+The Members attributed to one provider organization who have not opted out, as that provider sees it and exports it.
+_Avoid_: Group (unqualified), patient list, member list
+
+**Opt-Out**:
+A Member's choice that their information not be shared with their providers through the Provider Access API.
+Information is shared unless the Member opts out, and the choice can be changed at any time.
+_Avoid_: Consent withdrawal, block, restriction, opt-in (that is the Payer-to-Payer choice)
+
 ### The four APIs
 
 **Patient Access API**:
@@ -129,8 +144,8 @@ The interface through which a person retrieves their own claims, encounter, clin
 Information from the Behavioral Health Plan.
 
 **Provider Access API**:
-The interface through which an in-network provider with a treatment relationship retrieves a person's claims,
-encounter, clinical and prior authorization information, unless that person has opted out.
+The interface through which an in-network provider retrieves the claims, encounter, clinical and Prior Authorization
+Information of the Members attributed to it (see Attribution), unless the Member has opted out (see Opt-Out).
 
 **Payer-to-Payer API**:
 The interface through which Impacted Payers exchange a person's information when coverage changes or is concurrent,

@@ -12,6 +12,7 @@ public sealed class PriorAuthorizationRequests(
     PriorAuthorizationDbContext db,
     IAuthorizationRules rules,
     IOptions<PriorAuthorizationOptions> options,
+    Sharing.Attributions attributions,
     TimeProvider clock)
 {
     /// <summary>
@@ -28,6 +29,9 @@ public sealed class PriorAuthorizationRequests(
 
         var request = PriorAuthorizationRequest.Receive(submission, rules, clock.GetUtcNow());
         db.Requests.Add(request);
+        // The request shows the provider treats the Member: an Attribution for the Provider Access API.
+        if (submission.ProviderIdentifier is { } provider)
+            await attributions.Record(provider, submission.MemberIdentifier);
         try
         {
             await db.SaveChangesAsync();
@@ -121,6 +125,13 @@ public sealed class PriorAuthorizationRequests(
     public async Task<IReadOnlyList<PriorAuthorizationRequest>> OfMember(string memberIdentifier) =>
         await db.Requests
             .Where(r => r.MemberIdentifier == memberIdentifier)
+            .OrderBy(r => r.ReceivedAt)
+            .ToListAsync();
+
+    /// <summary>Every request ever made for any of these Members, oldest first: what an Attribution List exports.</summary>
+    public async Task<IReadOnlyList<PriorAuthorizationRequest>> OfMembers(IReadOnlyCollection<string> memberIdentifiers) =>
+        await db.Requests
+            .Where(r => memberIdentifiers.Contains(r.MemberIdentifier))
             .OrderBy(r => r.ReceivedAt)
             .ToListAsync();
 

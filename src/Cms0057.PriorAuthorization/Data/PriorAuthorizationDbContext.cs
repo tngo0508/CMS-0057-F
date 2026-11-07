@@ -9,6 +9,7 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
     public DbSet<PriorAuthorizationRequest> Requests => Set<PriorAuthorizationRequest>();
     public DbSet<Member> Members => Set<Member>();
     public DbSet<DecisionSubscription> Subscriptions => Set<DecisionSubscription>();
+    public DbSet<Attribution> Attributions => Set<Attribution>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -49,6 +50,15 @@ public sealed class PriorAuthorizationDbContext(DbContextOptions<PriorAuthorizat
             member.HasIndex(m => m.Identifier).IsUnique();
             member.Property(m => m.FamilyName).HasMaxLength(200);
             member.Property(m => m.GivenName).HasMaxLength(200);
+            member.Property(m => m.ProviderAccessOptedOut).HasDefaultValue(false);
+        });
+
+        model.Entity<Attribution>(attribution =>
+        {
+            attribution.HasKey(a => a.Id);
+            attribution.Property(a => a.ProviderIdentifier).HasMaxLength(100);
+            attribution.Property(a => a.MemberIdentifier).HasMaxLength(100);
+            attribution.HasIndex(a => new { a.ProviderIdentifier, a.MemberIdentifier }).IsUnique();
         });
 
         model.Entity<DecisionSubscription>(subscription =>
@@ -69,4 +79,26 @@ public sealed class Member
     public required string Identifier { get; set; }
     public required string FamilyName { get; set; }
     public required string GivenName { get; set; }
+
+    /// <summary>
+    /// The Member's Opt-Out: true when they have asked that their information not be shared with their providers
+    /// through the Provider Access API. Shared by default, as the rule has it; changeable at any time.
+    /// </summary>
+    public bool ProviderAccessOptedOut { get; set; }
+
+    /// <summary>When the Member last changed their Opt-Out, for the plan's records.</summary>
+    public DateTimeOffset? ProviderAccessChangedAt { get; set; }
+}
+
+/// <summary>
+/// An Attribution: the plan's record that a Member is a patient of an in-network provider, which is what lets the
+/// provider see the Member's information through the Provider Access API. Recorded when the provider sends a
+/// Prior Authorization Request for the Member, or by the plan's staff.
+/// </summary>
+public sealed class Attribution
+{
+    public int Id { get; set; }
+    public required string ProviderIdentifier { get; set; }
+    public required string MemberIdentifier { get; set; }
+    public DateTimeOffset AttributedAt { get; set; }
 }

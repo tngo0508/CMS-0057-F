@@ -353,6 +353,20 @@ public static class PasWire
         ],
     };
 
+    /// <summary>Writes the OperationOutcome for information the caller may not see.</summary>
+    public static OperationOutcome Forbidden(string reason) => new()
+    {
+        Issue =
+        [
+            new OperationOutcome.IssueComponent
+            {
+                Severity = OperationOutcome.IssueSeverity.Error,
+                Code = OperationOutcome.IssueType.Forbidden,
+                Diagnostics = reason,
+            },
+        ],
+    };
+
     /// <summary>Writes the OperationOutcome that tells a provider system why its request was rejected.</summary>
     public static OperationOutcome Rejection(string reason) => new()
     {

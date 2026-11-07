@@ -22,6 +22,35 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Cms0057.PriorAuthorization.Data.Attribution", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("AttributedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("MemberIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ProviderIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderIdentifier", "MemberIdentifier")
+                        .IsUnique();
+
+                    b.ToTable("Attributions");
+                });
+
             modelBuilder.Entity("Cms0057.PriorAuthorization.Data.Member", b =>
                 {
                     b.Property<int>("Id")
@@ -44,6 +73,14 @@ namespace Cms0057.PriorAuthorization.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset?>("ProviderAccessChangedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("ProviderAccessOptedOut")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.HasKey("Id");
 

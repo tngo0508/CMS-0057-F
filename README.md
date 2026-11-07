@@ -32,7 +32,10 @@ Authorization Information here, in the shape Da Vinci PDex gives it, to show the
 | `GET /cds-services`, `POST /cds-services/order-sign-crd` | CRD 2.2.1 | Coverage Information on a draft order: whether prior authorization is needed and the questionnaire to complete |
 | `POST /fhir/Questionnaire/$questionnaire-package` | DTR 2.2.0 | The Documentation Questionnaire(s) for an order or by canonical, each with a started QuestionnaireResponse |
 | `POST /fhir/Questionnaire/$next-question` | DTR 2.2.0 / SDC adaptive forms | The next questions of an Adaptive Questionnaire, chosen from the answers so far |
-| `GET /fhir/ExplanationOfBenefit?patient=&_lastUpdated=`, `GET /fhir/ExplanationOfBenefit/{id}` | PDex 2.1.0 | A Member's Prior Authorization Information, one ExplanationOfBenefit per request, for the Patient Access API to serve on |
+| `GET /fhir/ExplanationOfBenefit?patient=&_lastUpdated=`, `GET /fhir/ExplanationOfBenefit/{id}` | PDex 2.1.0 | A Member's Prior Authorization Information, one ExplanationOfBenefit per request: for the Patient Access API to serve on, or for a provider the Member is attributed to |
+| `GET /fhir/Group`, `GET /fhir/Group/{id}` | PDex 2.1.0 / ATR 2.1.0 | A provider system's Attribution List: the Members it may see |
+| `GET`/`POST /fhir/Group/{id}/$export`, `GET /fhir/$export-status/{job}`, `GET /fhir/$export-files/{job}/{type}.ndjson` | Bulk Data 1.0 | Export the list's Prior Authorization Information (Provider Access API) |
+| `PUT /members/{id}/provider-access`, `POST /members/{id}/attributions` | — | Staff: a Member's Opt-Out, and an Attribution the plan records itself |
 | `GET /reviewer` | — | The Reviewer's page: the Pended requests, and the approve/deny forms |
 | `GET /reviewer/pended-requests` | — | What the Reviewer has to decide, nearest deadline first |
 | `POST /reviewer/requests/{id}/approve`, `.../deny` | — | The Reviewer's decision |
@@ -201,6 +204,50 @@ units used to date (a claims figure PDex puts in `total`, which this service has
 the `Patient`, `Coverage` and `Organization` resources the references point at (they are the request's own, with
 the organizations' names as display text).
 
+## Provider Access for in-network providers
+
+From January 1, 2027 an in-network provider may retrieve, through the Provider Access API, the information of the
+Members attributed to it (claims, encounters, clinical data and the same prior authorization information as above,
+with the provider's related documentation), within one business day of asking, unless the Member has opted out
+(42 CFR 422.121(a); Medicaid managed care through 438.242(b)(7)). The rule has the plan run an attribution process,
+an opt-out process available at all times with plain-language information for Members, and provider resources
+explaining how to use it. Da Vinci PDex 2.1 shapes the exchange as a `Group` per provider (its Attribution List)
+and a Bulk Data export of the Group.
+
+What is built, for the prior authorization information this service holds:
+
+- **Attribution.** A provider is attributed a Member when it sends a Prior Authorization Request for them (the
+  treatment relationship the Member's own care shows), recorded under the NPI the request's provider carries; and
+  the plan's staff can attribute a Member to a provider themselves (`POST /members/{member}/attributions` with the
+  NPI), for an assigned provider, say. The Da Vinci guide recommends attribution by rendering-provider NPI, which
+  is what this is; a payer with a provider roster would attribute from it as well.
+- **Opt-Out.** `PUT /members/{member}/provider-access` with `{"optedOut": true}` (or `false` to opt back in) records
+  the Member's choice; opting out keeps the Member off every provider's list and refuses every provider read, and
+  opting back in restores the Attributions. The Member-facing form and the educational material the rule requires
+  are the agency's, outside this service.
+- **The Attribution List.** A provider system is registered with its organization's NPI (`OrganizationIdentifier`
+  under `Authentication:Clients`). `GET /fhir/Group` shows it its own list, and nobody else's, as a
+  [PDex Provider Group](https://hl7.org/fhir/us/davinci-pdex/STU2.1/StructureDefinition-pdex-provider-group.html)
+  (id `provider-{NPI}`, status `open`, one `member` per Member who has not opted out); `GET /fhir/Group/{id}` reads
+  it. Another provider's list answers 404, as if it were not there.
+- **Export.** `POST` (or `GET`) `/fhir/Group/{id}/$export` with `Prefer: respond-async` starts a
+  [Bulk Data 1.0](https://hl7.org/fhir/uv/bulkdata/STU1/) export: 202 with `Content-Location` pointing at the status
+  URL, which answers the manifest (`transactionTime`, `request`, `requiresAccessToken: true`, one `output` file per
+  resource type with its count); the file is newline-delimited JSON (`application/fhir+ndjson`) of the Members' PDex
+  Prior Authorization `ExplanationOfBenefit`s, the same as the Patient Access API gets. `_since` narrows it to what
+  changed since, `_type` may name `ExplanationOfBenefit` (anything else is 400, since nothing else is exported),
+  `_outputFormat` must be ndjson. The data is small, so the export is complete the moment it starts; jobs live in
+  memory for the life of the process, and only the system that started one can read or `DELETE` it. The Member's
+  opt-out is applied when the export runs, as PDex asks.
+- **One Member.** A provider system may also read `GET /fhir/ExplanationOfBenefit?patient={member}` for a Member
+  attributed to it; for anyone else it is 403. The Patient Access API's reads are unaffected by opt-outs, which
+  concern providers only.
+
+Scopes: `system/Group.read` for the list, `system/ExplanationOfBenefit.read` for the export and the single-Member
+read. Not built: PDex's `Consent` resource for the opt-out (the choice is recorded in the plan's own records), its
+draft `$davinci-data-export` operation (the rule names Bulk Data `$export`), and the claims, encounter and clinical
+data the rule also puts in this API, which this service does not hold.
+
 ## How a provider system authenticates
 
 The Final Rule requires SMART App Launch 1.0 for the payer APIs, and this service takes the Backend Services
@@ -229,9 +276,11 @@ password. Da Vinci's `br-payer` sample runs without authentication; here it is o
 Scopes: `$submit` needs `system/Claim.write`, `$inquire` `system/Claim.read`, reading a ClaimResponse
 `system/ClaimResponse.read`, a Decision Subscription `system/Subscription.write`, looking one up
 `system/Subscription.read`, the two DTR operations `system/Questionnaire.read` (`br-provider` asks for
-`system/*.rs`, which is granted as that) and the Patient Access API's reads `system/ExplanationOfBenefit.read`
-(the sample client `sample-patient-access-api`, which signs with the same synthetic key); CRD needs only a token
-from a registered client. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
+`system/*.rs`, which is granted as that), the Patient Access API's and a provider's prior authorization reads
+`system/ExplanationOfBenefit.read` (the sample client `sample-patient-access-api` signs with the same synthetic key)
+and a provider's Attribution List `system/Group.read`; CRD needs only a token from a registered client. What a
+client may see follows from its registration, not its scopes: `Kind` is `ProviderSystem` (the default; with
+`OrganizationIdentifier`, its NPI), `PatientAccessApi` or `Payer`. A system may ask in the SMART App Launch 2 spelling instead (`system/Claim.crus`, as `br-provider` does)
 and is answered in it; and it is granted the part of what it asked for that it is registered for, the token
 response's `scope` saying which, rather than refused outright (`invalid_scope` only when none of it can be granted).
 The metrics report under `/reports`
@@ -262,14 +311,15 @@ standard and expedited deadlines (24 hours for residential treatment; 5 business
 denial with the rule's required content, including coded Denial Reasons; overdue tracking; the Reviewer's page; the
 public metrics report; SMART Backend Services authentication for the provider-facing endpoints; validation of
 requests and inquiries against the PAS profiles; Prior Authorization Information for the Patient Access API as PDex
-Prior Authorization ExplanationOfBenefit resources.
+Prior Authorization ExplanationOfBenefit resources; Provider Access with Attribution, Opt-Out, Attribution Lists
+and Bulk Data export.
 
 Not built, tracked as [issues](https://github.com/tngo0508/CMS-0057-F/issues): DTR prepopulation beyond the order
 itself (no CQL libraries ship; the plan fills in only the service requested), receiving a completed
-QuestionnaireResponse with a request (and so the related documentation in the Patient Access information), the
-Reviewer endpoints' own authentication, the Member-facing side of the Patient Access API (assumed to be the
-agency's vendor's), and the rule's Provider Access and Payer-to-Payer APIs. Several issues are questions for the
-agency rather than work items.
+QuestionnaireResponse with a request (and so the related documentation in the Patient and Provider Access
+information), the Reviewer and staff endpoints' own authentication, the Member-facing side of the Patient Access
+API and of the Opt-Out (assumed to be the agency's), and the rule's Payer-to-Payer API. Several issues are
+questions for the agency rather than work items.
 
 ## Sources and attribution
 

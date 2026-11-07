@@ -41,9 +41,19 @@ public sealed class PriorAuthorizationApi(
     /// <summary>Every notification the service sends to provider systems lands here.</summary>
     public NotificationRecorder Notifications { get; } = new();
 
-    /// <summary>The provider system the tests act as, registered with the plan for every PAS and DTR scope.</summary>
+    private const string ProviderScopes =
+        "system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read system/Group.read system/ExplanationOfBenefit.read";
+
+    /// <summary>
+    /// The provider system the tests act as, registered with the plan for every PAS, DTR and Provider Access scope,
+    /// acting for the treatment provider whose NPI every request carries.
+    /// </summary>
     public RegisteredSystem ProviderSystem { get; } =
-        new("synthetic-recovery-house", "system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read");
+        new("synthetic-recovery-house", ProviderScopes, organizationIdentifier: RequestBundles.TreatmentProviderNpi);
+
+    /// <summary>Another in-network provider's system, with the same scopes, that sent none of the requests.</summary>
+    public RegisteredSystem OtherProviderSystem { get; } =
+        new("another-provider-system", ProviderScopes, organizationIdentifier: "1112223338");
 
     /// <summary>The EHR the tests act as for CRD; registered by the URL where it publishes its keys.</summary>
     public RegisteredSystem Ehr { get; } = new("synthetic-ehr", "system/Claim.read");
@@ -54,7 +64,7 @@ public sealed class PriorAuthorizationApi(
     /// The agency's Patient Access API, which serves Members their own prior authorization information and reads it
     /// from here; registered as a system that may read ExplanationOfBenefit and nothing else.
     /// </summary>
-    public RegisteredSystem PatientAccessApi { get; } = new("synthetic-patient-access-api", "system/ExplanationOfBenefit.read");
+    public RegisteredSystem PatientAccessApi { get; } = new("synthetic-patient-access-api", "system/ExplanationOfBenefit.read", kind: "PatientAccessApi");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -75,6 +85,7 @@ public sealed class PriorAuthorizationApi(
         builder.UseSetting("Authentication:Clients:1:Scopes", Ehr.Scopes);
         builder.UseSetting("Authentication:Clients:1:JwksUri", EhrJwksUrl);
         Register(builder, 2, PatientAccessApi);
+        Register(builder, 3, OtherProviderSystem);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<TimeProvider>();
@@ -91,6 +102,8 @@ public sealed class PriorAuthorizationApi(
     {
         builder.UseSetting($"Authentication:Clients:{index}:ClientId", system.ClientId);
         builder.UseSetting($"Authentication:Clients:{index}:Scopes", system.Scopes);
+        if (system.Kind is not null) builder.UseSetting($"Authentication:Clients:{index}:Kind", system.Kind);
+        if (system.OrganizationIdentifier is not null) builder.UseSetting($"Authentication:Clients:{index}:OrganizationIdentifier", system.OrganizationIdentifier);
         foreach (var (member, value) in system.PublicJwk)
             builder.UseSetting($"Authentication:Clients:{index}:Jwks:keys:0:{member}", value);
     }
@@ -177,6 +190,64 @@ public sealed class PriorAuthorizationApi(
         using var client = ClientFor(caller ?? Caller.As(PatientAccessApi));
         using var response = await client.GetAsync("/fhir/ExplanationOfBenefit?" + query);
         return new PatientAccessResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>A provider system (or another payer) lists the Groups it may see: its own attribution lists.</summary>
+    public async Task<GroupResponse> Groups(Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync("/fhir/Group");
+        return new GroupResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<GroupResponse> Group(string id, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync("/fhir/Group/" + id);
+        return new GroupResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Bulk Data kick-off: the system asks for everything about a Group's members, asynchronously.</summary>
+    public async Task<ExportKickoff> StartExport(string groupId, string query = "", Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/fhir/Group/{groupId}/$export" + (query.Length > 0 ? "?" + query : ""));
+        request.Headers.Add("Prefer", "respond-async");
+        request.Headers.Add("Accept", "application/fhir+json");
+        using var response = await client.SendAsync(request);
+        return new ExportKickoff(response.StatusCode, response.Content.Headers.ContentLocation?.ToString() ?? response.Headers.Location?.ToString(), await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Bulk Data status request, at the URL the kick-off gave.</summary>
+    public async Task<ExportManifest> ExportStatus(string url, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync(url);
+        return new ExportManifest(response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Bulk Data output file request, at a URL the manifest named.</summary>
+    public async Task<(HttpStatusCode Status, string? ContentType, string Body)> ExportFile(string url, Caller? caller = null)
+    {
+        using var client = ClientFor(caller ?? Caller.As(ProviderSystem));
+        using var response = await client.GetAsync(url);
+        return (response.StatusCode, response.Content.Headers.ContentType?.MediaType, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>The plan records a Member's choice about Provider Access (opt out, or opt back in). Staff, not FHIR.</summary>
+    public async Task<HttpStatusCode> SetProviderAccessOptOut(string memberIdentifier, bool optedOut)
+    {
+        using var client = CreateClient();
+        using var response = await client.PutAsJsonAsync($"/members/{memberIdentifier}/provider-access", new { optedOut });
+        return response.StatusCode;
+    }
+
+    /// <summary>The plan attributes a Member to an in-network provider itself (an assigned provider, say). Staff, not FHIR.</summary>
+    public async Task<HttpStatusCode> Attribute(string memberIdentifier, string providerIdentifier)
+    {
+        using var client = CreateClient();
+        using var response = await client.PostAsJsonAsync($"/members/{memberIdentifier}/attributions", new { providerIdentifier });
+        return response.StatusCode;
     }
 
     /// <summary>The Patient Access API reads one prior authorization by the id a search gave it.</summary>

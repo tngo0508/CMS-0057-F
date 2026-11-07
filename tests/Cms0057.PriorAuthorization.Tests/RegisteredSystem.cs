@@ -13,10 +13,12 @@ public sealed class RegisteredSystem
 {
     private readonly RsaSecurityKey _key;
 
-    public RegisteredSystem(string clientId, string scopes)
+    public RegisteredSystem(string clientId, string scopes, string? kind = null, string? organizationIdentifier = null)
     {
         ClientId = clientId;
         Scopes = scopes;
+        Kind = kind;
+        OrganizationIdentifier = organizationIdentifier;
         _key = new RsaSecurityKey(RSA.Create(2048)) { KeyId = $"{clientId}-key" };
     }
 
@@ -24,6 +26,12 @@ public sealed class RegisteredSystem
 
     /// <summary>The scopes the plan registered this system for, space-separated.</summary>
     public string Scopes { get; }
+
+    /// <summary>What the plan registered the system as: ProviderSystem (the default), PatientAccessApi or Payer.</summary>
+    public string? Kind { get; }
+
+    /// <summary>The organization the system acts for: a provider's NPI, a payer's identifier.</summary>
+    public string? OrganizationIdentifier { get; }
 
     /// <summary>The public key as the plan's registration holds it, as JWK members.</summary>
     public IReadOnlyDictionary<string, string> PublicJwk

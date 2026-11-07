@@ -23,7 +23,7 @@
 POST {{baseUrl}}/auth/token
 Content-Type: application/x-www-form-urlencoded
 
-grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read
+grant_type=client_credentials&client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer&client_assertion={{clientAssertion}}&scope=system/Claim.read system/Claim.write system/ClaimResponse.read system/Subscription.read system/Subscription.write system/Questionnaire.read system/Group.read system/ExplanationOfBenefit.read
 
 ### B. What the service advertises about obtaining a token (no token needed).
 GET {{baseUrl}}/.well-known/smart-configuration
@@ -421,6 +421,41 @@ Authorization: Bearer {{patientAccessToken.response.body.$.access_token}}
 ### 7b. One of them by its id (the same id as the ClaimResponse's).
 GET {{baseUrl}}/fhir/ExplanationOfBenefit/{{submit.response.body.$.entry[0].resource.id}}
 Authorization: Bearer {{patientAccessToken.response.body.$.access_token}}
+
+### 8. Provider Access: the provider system sees its Attribution List (the Members it sent requests for, less opt-outs).
+# Expect: 200 with a searchset of one PDex Provider Group, id provider-8189991234, member Patient/90000001A.
+# @name groups
+GET {{baseUrl}}/fhir/Group
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+### 8b. Bulk Data kick-off on the list: export its Members' Prior Authorization Information.
+# Expect: 202 with a Content-Location header: the status URL. Add ?_since=2026-11-06T00:00:00Z for changes only.
+# @name export
+POST {{baseUrl}}/fhir/Group/provider-8189991234/$export
+Prefer: respond-async
+Accept: application/fhir+json
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+### 8c. Bulk Data status: the manifest (complete at once here).
+# @name manifest
+GET {{export.response.headers.Content-Location}}
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+### 8d. The output file: one ExplanationOfBenefit per line (application/fhir+ndjson).
+GET {{manifest.response.body.$.output[0].url}}
+Authorization: Bearer {{token.response.body.$.access_token}}
+
+### 8e. Staff: the Member opts out of Provider Access (send 8 again: the list is empty; 8b exports nothing). Set false to opt back in.
+PUT {{baseUrl}}/members/90000001A/provider-access
+Content-Type: application/json
+
+{ "optedOut": true }
+
+### 8f. Staff: the plan attributes another Member to the provider itself.
+POST {{baseUrl}}/members/90000002B/attributions
+Content-Type: application/json
+
+{ "providerIdentifier": "8189991234" }
 
 ### 6. Provider cancels the request from step 1 (while it is Pended, or after approval).
 # Expect: 200 with every item "A2" and a process note "Cancelled at the provider's request"; the request

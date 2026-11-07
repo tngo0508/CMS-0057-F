@@ -116,7 +116,7 @@ public static class PriorAuthorizationInformation
     }
 
     /// <summary>The last status change: receipt, or the decision or cancellation since. What a Patient Access API polls on.</summary>
-    private static DateTimeOffset LastChanged(PriorAuthorizationRequest request) => request.DecidedAt ?? request.ReceivedAt;
+    public static DateTimeOffset LastChanged(PriorAuthorizationRequest request) => request.DecidedAt ?? request.ReceivedAt;
 
     /// <summary>
     /// The adjudication that carries a review action: the decision's code, number and reason, and the date it was

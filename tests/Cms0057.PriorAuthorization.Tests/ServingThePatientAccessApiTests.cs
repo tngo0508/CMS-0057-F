@@ -136,9 +136,9 @@ public sealed class ServingThePatientAccessApiTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_provider_system_is_not_the_patient_access_api_and_cannot_read_prior_authorizations()
+    public async Task A_provider_the_member_is_not_attributed_to_cannot_read_their_prior_authorizations()
     {
-        var answer = await _api.PriorAuthorizations("patient=" + RequestBundles.KnownMember, Caller.As(_api.ProviderSystem));
+        var answer = await _api.PriorAuthorizations("patient=" + RequestBundles.KnownMember, Caller.As(_api.OtherProviderSystem));
 
         Assert.Equal(HttpStatusCode.Forbidden, answer.Status);
     }
