@@ -88,6 +88,69 @@ Deadline first and Overdue ones marked, and approves or denies each one through 
 single static page ([`wwwroot/reviewer.html`](src/Cms0057.PriorAuthorization/wwwroot/reviewer.html)) with no
 sign-in, as the rest of the proof of concept has none.
 
+### A ten-minute tour
+
+1. **Start the service.** The first start creates the database and runs the migrations, which takes a few seconds;
+   the console then says `Now listening on: http://localhost:5198`.
+
+   ```bash
+   dotnet run --project src/Cms0057.PriorAuthorization
+   ```
+
+2. **Submit a request the way a provider system does.** The quickest way is the br-provider replay, which obtains
+   a token with the sample client's key and submits, among other calls, a day-treatment request (`H2012`) that the
+   plan's rules pend for review. It needs bash, curl, Python 3 and Windows PowerShell.
+
+   ```bash
+   bash samples/br-provider/replay.sh
+   ```
+
+   To go step by step instead, open [`PriorAuthorization.http`](src/Cms0057.PriorAuthorization/PriorAuthorization.http),
+   sign a client assertion with `./samples/New-ClientAssertion.ps1`, paste it into `@clientAssertion`, send step A
+   for a token, then step 1 to submit the residential treatment request (`H0019 U1`). Steps 0 and 0b before it show
+   the CRD and DTR calls an EHR makes first.
+
+3. **Open the Reviewer's page** at [http://localhost:5198/reviewer](http://localhost:5198/reviewer). Every Pended
+   request is listed with the Decision Deadline the plan's rules give it, soonest first and Overdue ones marked:
+   24 hours for residential treatment (DHCS BHIN 24-001); 5 business days, or 72 hours when expedited, for the
+   specialty mental health services under BHIN 26-030.
+
+   ![The Reviewer's page listing Pended requests with their Decision Deadlines](docs/screenshots/reviewer-pended-requests.png)
+
+4. **Decide one.** *Decide* opens the panel: approve with the date the authorization ends, or deny with a Denial
+   Reason the provider can act on (and a coded reason when the plan has configured them).
+
+   ![The decision panel open on an expedited request, with an authorization end date filled in](docs/screenshots/reviewer-decide.png)
+
+   On *Approve request* the request leaves the list, the provider system's Subscription is notified, and the
+   ClaimResponse it can read or inquire about (step 4 of the `.http` file) now carries the Authorization Number
+   and the authorization period.
+
+   ![The list after approving, with the notice that the provider system is being told](docs/screenshots/reviewer-approved.png)
+
+5. **Read the metrics the rule has the plan post publicly** each year by March 31 for the year before
+   (42 CFR 438.210(f) for Medicaid managed care):
+
+   ```bash
+   curl "http://localhost:5198/reports/prior-authorization-metrics?year=2026"
+   ```
+
+   ```json
+   {
+     "year": 2026,
+     "servicesRequiringPriorAuthorization": ["H0019 U1", "H0019 U2", "H0019 U3", "H0040", "H2012", "H2019", "S5145"],
+     "requestsReceived": 8, "approved": 3, "denied": 0, "cancelled": 0, "undecided": 5,
+     "approvedPercent": 37.5, "deniedPercent": 0,
+     "averageHoursToDecision": 0, "medianHoursToDecision": 0
+   }
+   ```
+
+6. **Carry on down the `.http` file** for the rest: the provider's inquiry and update, the Patient Access API's
+   ExplanationOfBenefit view of the same request (step 7), Provider Access with its Group and `$export` (step 8),
+   and the Payer-to-Payer `$member-match` and `$everything` (step 9). Each step says what to expect.
+
+Running `dotnet test` needs no running service: each test starts the service itself against a throwaway database.
+
 The service's own settings are in [`appsettings.json`](src/Cms0057.PriorAuthorization/appsettings.json): the
 connection string, the registered client systems (`Authentication`, below), the rules (`Requirements`: which
 billing codes need prior authorization, how long the plan has to decide, standard and expedited, and the canonical

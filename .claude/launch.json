@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "prior-authorization",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/Cms0057.PriorAuthorization"],
+      "port": 5198
+    }
+  ]
+}
