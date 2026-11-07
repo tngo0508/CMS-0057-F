@@ -43,7 +43,12 @@ using (var scope = app.Services.CreateScope())
 // Fetch and compile the PAS profiles now rather than on the first provider request.
 app.Services.GetRequiredService<PasProfiles>().WarmUp();
 
-// SMART discovery: where a provider system or an EHR obtains an access token, and how.
+// The FHIR server's CapabilityStatement, public as on every FHIR server; br-provider reads it to see the payer is there.
+app.MapGet("/fhir/metadata", (HttpRequest http, TimeProvider clock) => Fhir(ServerCapabilities.For(ServerRoot(http), clock.GetUtcNow())));
+
+// SMART discovery: where a provider system or an EHR obtains an access token, and how. SMART App Launch publishes
+// it under the FHIR base URL, which is where br-provider and Inferno look; the server root answers too.
+app.MapGet("/fhir/.well-known/smart-configuration", (HttpRequest http) => Results.Json(SmartConfiguration.For(ServerRoot(http))));
 app.MapGet("/.well-known/smart-configuration", (HttpRequest http) => Results.Json(SmartConfiguration.For(ServerRoot(http))));
 
 // The token endpoint: a registered system trades its signed client assertion for a short-lived access token.
@@ -158,10 +163,11 @@ Protected(app.MapPost("/fhir/Questionnaire/$next-question", async (HttpRequest h
 }), "system/Questionnaire.read");
 
 // CRD over CDS Hooks: what an EHR calls as a clinician signs an order. The EHR authenticates like a provider
-// system, as a registered client; no scope is needed beyond that.
-Protected(app.MapGet("/cds-services", () => Results.Json(CoverageRequirements.Discovery())));
+// system, as a registered client; no scope is needed beyond that. Authentication:RequireTokenForCdsHooks lets an
+// EHR that cannot present a token (br-provider without its security server) through here and nowhere else.
+CdsHooks(app.MapGet("/cds-services", () => Results.Json(CoverageRequirements.Discovery())));
 
-Protected(app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpRequest http, CoverageRequirements crd) =>
+CdsHooks(app.MapPost($"/cds-services/{CoverageRequirements.ServiceId}", async (HttpRequest http, CoverageRequirements crd) =>
 {
     try
     {
@@ -216,6 +222,10 @@ RouteHandlerBuilder Protected(RouteHandlerBuilder endpoint, string? scope = null
     !authentication.Enabled ? endpoint
     : scope is null ? endpoint.RequireAuthorization()
     : endpoint.RequireAuthorization(scope);
+
+// The CDS Hooks endpoints demand a token too, unless Authentication:RequireTokenForCdsHooks is switched off.
+RouteHandlerBuilder CdsHooks(RouteHandlerBuilder endpoint) =>
+    authentication.RequireTokenForCdsHooks ? Protected(endpoint) : endpoint;
 
 /// RFC 6749 section 5.2: a refused token request.
 static IResult TokenError(string error, string description) =>

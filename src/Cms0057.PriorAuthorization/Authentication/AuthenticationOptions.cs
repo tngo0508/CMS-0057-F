@@ -17,6 +17,14 @@ public sealed class AuthenticationOptions
     /// <summary>How long an access token is good for. SMART recommends five minutes for Backend Services.</summary>
     public TimeSpan AccessTokenLifetime { get; set; } = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// Whether the CDS Hooks endpoints (CRD) demand an access token like the FHIR ones. CDS Hooks has the EHR
+    /// identify itself with a JWT it signs, not a token from the payer, and Da Vinci's br-provider run without its
+    /// security server sends nothing at all; off, CRD answers an EHR that presents no credentials. The Prior
+    /// Authorization API itself is unaffected.
+    /// </summary>
+    public bool RequireTokenForCdsHooks { get; set; } = true;
+
     public List<RegisteredClient> Clients { get; set; } = [];
 }
 

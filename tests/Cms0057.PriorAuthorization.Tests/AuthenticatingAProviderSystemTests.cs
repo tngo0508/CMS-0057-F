@@ -27,6 +27,14 @@ public sealed class AuthenticatingAProviderSystemTests : IDisposable
     }
 
     [Fact]
+    public async Task The_discovery_document_is_published_under_the_FHIR_base_URL_where_SMART_App_Launch_puts_it()
+    {
+        var underFhirBase = await _api.SmartConfiguration("/fhir/.well-known/smart-configuration");
+
+        Assert.Equal(await _api.SmartConfiguration(), underFhirBase);
+    }
+
+    [Fact]
     public async Task A_registered_system_that_signs_with_its_key_is_given_an_access_token()
     {
         var token = await _api.RequestToken(_api.ProviderSystem.ClientAssertion(Now));
@@ -215,6 +223,20 @@ public sealed class AuthenticatingAProviderSystemTests : IDisposable
         var response = await _api.OrderSign(HookRequests.OrderSign(), Caller.Anonymous);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.Status);
+    }
+
+    [Fact]
+    public async Task With_the_CDS_Hooks_token_requirement_switched_off_an_EHR_that_presents_none_is_still_answered()
+    {
+        using var demo = new PriorAuthorizationApi(cdsHooksToken: false);
+
+        var discovery = JsonDocument.Parse(await demo.DiscoverServices(Caller.Anonymous)).RootElement;
+        var hook = await demo.OrderSign(HookRequests.OrderSign(), Caller.Anonymous);
+        var submission = await demo.Submit(RequestBundles.ResidentialTreatment(), Caller.Anonymous);
+
+        Assert.Equal("order-sign-crd", discovery.GetProperty("services")[0].GetProperty("id").GetString());
+        Assert.Equal((HttpStatusCode.OK, "auth-needed"), (hook.Status, hook.PriorAuthorizationNeeded));
+        Assert.Equal(HttpStatusCode.Unauthorized, submission.Status);
     }
 
     [Fact]

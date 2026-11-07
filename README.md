@@ -101,6 +101,59 @@ next one that later questions depend on (an `enableWhen`), leaving out questions
 not meet, until nothing is left and the response is `completed`. The BHIN 26-030 services name no questionnaire
 yet, so their coverage information says prior authorization is needed and nothing about documentation.
 
+### Running Da Vinci's br-provider against it
+
+[`br-provider`](https://github.com/HL7-DaVinci/br-provider) is Da Vinci's provider-side reference implementation
+(an EHR front end over a HAPI FHIR server). Driven end to end against this service on one machine, a request it
+submits is Pended here, decided on the Reviewer's page, and the decision shows in br-provider. What it takes:
+
+1. **Tools.** Java 17+, Maven 3.9 and Node 22 (or Bun). br-provider's own security server (`fast-udap-security`)
+   and `br-payer` are not needed; both are Docker images and this service stands in for the payer.
+2. **br-provider's server**, with its own authentication off (it cannot start it without that security server)
+   and, if port 8080 is taken, on another port. Its frontend's dev proxy is pinned to 8080, so serve the built
+   frontend from the server instead:
+
+   ```bash
+   git clone https://github.com/HL7-DaVinci/br-provider && cd br-provider
+   npm install --legacy-peer-deps --ignore-scripts
+   cd frontend && npx cpy ../node_modules/lforms/dist/lforms/webcomponent/{styles.css,runtime.js,polyfills.js,main.js,assets/lib/zone.min.js,down_arrow_gray_10_10.png,magnifying_glass.png} ../node_modules/lforms/dist/lforms/fhir/R4/lformsFHIR.min.js public/lforms --flat && node scripts/scope-lforms-css.mjs
+   npx vite build && mkdir -p ../server/src/main/resources/static && cp -r dist/* ../server/src/main/resources/static/
+   cd ../server && mvn spring-boot:run "-Dspring-boot.run.arguments=--server.port=8090 --hapi.fhir.server_address=http://localhost:8090/fhir --security.enable-authentication=false --security.fhir-base-url=http://localhost:8090/fhir --security.external-base-url=http://localhost:8090 --app.provider-servers[0].name=Local_Provider_Server --app.provider-servers[0].url=http://localhost:8090/fhir"
+   ```
+
+   (The `cpy` and `vite build` lines are what its `postinstall` and `build` scripts do; they are run by hand
+   because its scripts assume Bun's module layout. Its UI is then at [http://localhost:8090](http://localhost:8090).)
+3. **This service**, with the CDS Hooks token requirement off. br-provider authenticates CDS Hooks calls with the
+   CDS Hooks client JWT its security server's certificate signs, so without that server it sends no credentials at
+   all on CRD calls; its PAS calls use SMART Backend Services and need no such allowance:
+
+   ```bash
+   dotnet run --project src/Cms0057.PriorAuthorization -- --Authentication:RequireTokenForCdsHooks=false
+   ```
+
+   br-provider is registered in `appsettings.json` as client `br-provider`, with its keys fetched from
+   `http://localhost:8090/api/security/jwks` (on Windows it generates new keys on every start, so they are never
+   copied in).
+4. **In br-provider:** Settings, Payer tab, Server "Custom...": CDS Services URL `http://localhost:5198/cds-services`,
+   FHIR URL `http://localhost:5198/fhir`, Authentication "SMART Backend Services", Client ID `br-provider`. Then
+   give a patient's Coverage a `subscriberId` that is a Member of this plan, for example Bobby Tables' (`cov1234`):
+
+   ```bash
+   curl -s http://localhost:8090/fhir/Coverage/cov1234 | sed 's/"subscriberId" *: *"[^"]*"/"subscriberId": "90000001A"/' | curl -s -X PUT -H 'Content-Type: application/fhir+json' --data-binary @- http://localhost:8090/fhir/Coverage/cov1234
+   ```
+
+   br-provider derives the type `MB` member identifier it sends from `Coverage.subscriberId`. Its database is
+   in memory, so this is repeated after each restart.
+5. **The flow:** open the patient, Start Encounter, "Custom order code..." with Order Type Service, Code System
+   HCPCS and code `H2012` (a code this plan pends; br-provider sends no modifiers, so `H0019` comes back Not
+   Required), pick the coverage, Sign All Orders. CRD answers `auth-needed`, and the order gets a "Submit PA"
+   action. br-provider stamps the signed-in practitioner on the request, and with its authentication off there is
+   none; set one in the browser console first (`sessionStorage.setItem('spa_userinfo', JSON.stringify({fhirUser:
+   'Practitioner/pra1234', fhirUserType: 'Practitioner'}))`, its seeded Dr. Doe, NPI `1122334455`). Submit: the
+   response is Pended and br-provider has subscribed. Approve it on
+   [http://localhost:5198/reviewer](http://localhost:5198/reviewer); the notification lands at
+   `http://localhost:8090/api/pas/notification` and br-provider's page shows Approved with the Authorization Number.
+
 ## How a provider system authenticates
 
 The Final Rule requires SMART App Launch 1.0 for the payer APIs, and this service takes the Backend Services

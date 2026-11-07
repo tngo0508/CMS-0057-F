@@ -21,10 +21,15 @@ namespace Cms0057.PriorAuthorization.Tests;
 /// <param name="denialReasonCodes">Off only to show the page without a code picker; the plan normally has codes.</param>
 /// <param name="authentication">Off only to show the local-demo switch; every other test runs with it on.</param>
 /// <param name="validateProfiles">Off only to show the setting works; every other test runs with it on.</param>
+/// <param name="cdsHooksToken">
+/// Off only to show the switch for an EHR that cannot present a token on CDS Hooks calls (Da Vinci's br-provider
+/// run without its security server); every other test has the EHR present one.
+/// </param>
 public sealed class PriorAuthorizationApi(
     bool denialReasonCodes = true,
     bool authentication = true,
-    bool validateProfiles = true)
+    bool validateProfiles = true,
+    bool cdsHooksToken = true)
     : WebApplicationFactory<Program>
 {
     public static readonly DateTimeOffset Start = new(2026, 11, 6, 18, 0, 0, TimeSpan.Zero);
@@ -58,6 +63,7 @@ public sealed class PriorAuthorizationApi(
             builder.UseSetting("PriorAuthorization:DenialReasonCodes:0:Display", "Not medically necessary (test code)");
         }
         builder.UseSetting("Authentication:Enabled", authentication ? "true" : "false");
+        if (!cdsHooksToken) builder.UseSetting("Authentication:RequireTokenForCdsHooks", "false");
         Register(builder, 0, ProviderSystem);
         builder.UseSetting("Authentication:Clients:1:ClientId", Ehr.ClientId);
         builder.UseSetting("Authentication:Clients:1:Scopes", Ehr.Scopes);
@@ -155,17 +161,28 @@ public sealed class PriorAuthorizationApi(
         return new DtrResponse(response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
-    /// <summary>SMART discovery: where and how a provider system obtains an access token.</summary>
-    public async Task<string> SmartConfiguration()
+    /// <summary>
+    /// SMART discovery: where and how a provider system obtains an access token. SMART App Launch publishes it under
+    /// the FHIR base URL; this service answers at the server root as well.
+    /// </summary>
+    public async Task<string> SmartConfiguration(string path = "/.well-known/smart-configuration")
     {
         using var client = CreateClient();
-        return await client.GetStringAsync("/.well-known/smart-configuration");
+        return await client.GetStringAsync(path);
+    }
+
+    /// <summary>The FHIR server's CapabilityStatement, fetched as any client may: without credentials.</summary>
+    public async Task<(HttpStatusCode Status, string? ContentType, string Body)> CapabilityStatement()
+    {
+        using var client = CreateClient();
+        using var response = await client.GetAsync("/fhir/metadata");
+        return (response.StatusCode, response.Content.Headers.ContentType?.ToString(), await response.Content.ReadAsStringAsync());
     }
 
     /// <summary>CDS Hooks discovery: the services this payer offers an EHR.</summary>
-    public async Task<string> DiscoverServices()
+    public async Task<string> DiscoverServices(Caller? caller = null)
     {
-        using var client = ClientFor(Caller.As(Ehr));
+        using var client = ClientFor(caller ?? Caller.As(Ehr));
         return await client.GetStringAsync("/cds-services");
     }
 
